@@ -41,9 +41,14 @@
 ### 2.2 安裝步驟
 
 ```bash
-# 1. 複製專案
-git clone <repo-url>
-cd Jira_Insight_claude_code
+# 1. 複製專案 (選擇一種方式)
+
+# HTTPS (需要輸入 GitHub 帳號密碼)
+git clone https://github.com/waynechang930/jira-insight.git
+# 或 SSH (需要設定 SSH Key)
+git clone git@github.com:waynechang930/jira-insight.git
+
+cd jira-insight
 
 # 2. 建立虛擬環境
 python -m venv venv
@@ -55,9 +60,9 @@ pip install -r requirements.txt
 
 # 4. 設定環境變數
 cp .env.example .env
-# 編輯 .env 填入你的設定
+# 編輯 .env 填入你的設定 (特別是 JIRA_COOKIE)
 
-# 5. 初始化資料庫
+# 5. 初始化資料庫 (可選)
 python init_db.py
 
 # 6. 啟動服務
@@ -103,10 +108,18 @@ DEEPSEEK_LLM_API_KEY=sk-xxxxx
 4. **左側展開** Cookies > 點選你的 Jira 網域（如 `vendorjira.realtek.com`）
 5. **點擊右側表格的任一列**（確保整個表格被選取）
 6. **按 Ctrl + A 全選**，再 **Ctrl + C 複製**
-7. **貼到 .env 檔案**：
+7. **貼到 .env 檔案**（環境變數名稱必須是 `JIRA_COOKIE`，值直接貼上）：
    ```
-   JIRA_COOKIE=<貼上複製的內容>
+   JIRA_COOKIE=CURRENTSERVER	JiraSoftware	vendorjira.realtek.com	/	Session	25		✓		Medium	
+   DEVICEDETAILS	Mozilla/5.0 (Windows NT 10.0: Win64: x64) AppleWebKit/537.36...
+   JSESSIONID	013EE3796D22B9CFA33A0CD347FA6220	vendorjira.realtek.com	/	Session	42	✓	✓		Medium	
+   Jira_2FASessionVerified	l7CkfNkfMGZHFfZXNyByFA==	vendorjira.realtek.com	/	2026-04-27T04:26:15.332Z	47	✓		Medium	
+   Jira_rememberMyLogin	k6vBTQ7vQfqeXtF5Y1Zx+NCQi53AdEymRBI00R34oi+EyXfhXTUXfSXUGcRx4er3hLL2/1QmeOtFyuJOGNxoUa+ReR/VG1ibOfKiArm+EXMnlJk6AaNhZazyYvbWTRmftB2r3opFhUEvja7qoGQ3HA==	vendorjira.realtek.com	/	2026-04-27T04:26:15.332Z	172	✓		Medium	
+   atlassian.xsrf.token	BWBF-1PEU-O5AK-RBNK_3df6453e5279b3304454499602718364cb4853fd_lin	vendorjira.realtek.com	/	Session	84	✓	None		Medium	
+   seraph.rememberme.cookie	117184%3A992dc63a7a747df9b9ca5735ee3849c4dbd90752	vendorjira.realtek.com	/	2026-04-27T04:26:02.985Z	73	✓	✓		Medium
    ```
+
+   > ⚠️ **重點**：貼上後確保變數名稱是 `JIRA_COOKIE=`，值是從瀏覽器複製的整個表格內容
 
 **程式會自動解析以下必要的 Cookie：**
 - `Jira_2FASessionVerified`
