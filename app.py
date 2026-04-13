@@ -93,6 +93,98 @@ def get_jira_auth():
 # Attachment storage path
 ATTACHMENTS_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "attachments")
 
+# Error log pattern keyword directory
+ERROR_PATTERN_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "errorlogpattern_keyword")
+
+# Cache for loaded error patterns
+_error_patterns_cache = None
+
+
+def load_all_error_patterns():
+    """Load all error patterns from JSON files in errorlogpattern_keyword directory"""
+    global _error_patterns_cache
+    if _error_patterns_cache is not None:
+        return _error_patterns_cache
+
+    patterns = []
+    if not os.path.exists(ERROR_PATTERN_DIR):
+        print(f"[ErrorPattern] Directory not found: {ERROR_PATTERN_DIR}")
+        return patterns
+
+    json_files = [f for f in os.listdir(ERROR_PATTERN_DIR) if f.endswith('.json')]
+    print(f"[ErrorPattern] Loading {len(json_files)} pattern files...")
+
+    for json_file in json_files:
+        file_path = os.path.join(ERROR_PATTERN_DIR, json_file)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                rules = json.load(f)
+                module_name = json_file.replace('.json', '')
+                for rule in rules:
+                    rule['_source_file'] = module_name
+                patterns.extend(rules)
+                print(f"[ErrorPattern] Loaded {len(rules)} rules from {json_file}")
+        except Exception as e:
+            print(f"[ErrorPattern] Error loading {json_file}: {e}")
+
+    _error_patterns_cache = patterns
+    print(f"[ErrorPattern] Total patterns loaded: {len(patterns)}")
+    return patterns
+
+
+def scan_log_with_patterns(content, patterns, context_lines=20):
+    """
+    Scan log content against error patterns and return matching rules with context.
+
+    Args:
+        content: Full log content (string)
+        patterns: List of error pattern rules from JSON
+        context_lines: Number of lines before/after match to include (default 20)
+
+    Returns:
+        List of matches, each containing:
+        - rule: The matched rule dict
+        - matched_line: The line that matched
+        - context: ±context_lines lines around the match
+        - line_number: Line number where match was found
+    """
+    matches = []
+    lines = content.split('\n')
+
+    for rule in patterns:
+        keywords = rule.get('Keywords', '')
+        if not keywords:
+            continue
+
+        # Parse keywords - split by && for AND logic
+        keyword_list = [k.strip() for k in keywords.split('&&') if k.strip()]
+
+        if not keyword_list:
+            continue
+
+        # Search for all keywords (AND logic)
+        for line_num, line in enumerate(lines, start=1):
+            line_lower = line.lower()
+            # Check if ALL keywords are present (case-insensitive)
+            if all(kw.lower() in line_lower for kw in keyword_list):
+                # Get context lines (±20 lines)
+                start_idx = max(0, line_num - context_lines - 1)
+                end_idx = min(len(lines), line_num + context_lines)
+
+                context = '\n'.join(lines[start_idx:end_idx])
+
+                matches.append({
+                    'rule': rule,
+                    'matched_line': line.strip(),
+                    'context': context,
+                    'line_number': line_num
+                })
+
+                # Only report first match per rule to avoid duplicates
+                break
+
+    return matches
+
 # AI Analysis Prompt (English)
 AI_ANALYSIS_PROMPT = """
 # Role Definition
@@ -467,19 +559,85 @@ def api_batch_analyze():
     # Download and analyze attachments
     attachment_texts = download_and_analyze_attachments(issue_key)
 
-    # Build analysis prompt
+    # Load error patterns from JSON files
+    error_patterns = load_all_error_patterns()
+
+    # Build analysis prompt with pattern matching results
     attachment_content = ""
-    if attachment_texts:
-        attachment_content = "\n\n=== ATTACHMENT ANALYSIS (Key Log Excerpts) ===\n"
+    pattern_matches_summary = []
+
+    if attachment_texts and error_patterns:
+        attachment_content = "\n\n=== ATTACHMENT ANALYSIS (Error Pattern Matching) ===\n"
+
         for att_name, att_text in attachment_texts:
-            # Extract key log lines (error, exception, fail, warning)
-            log_lines = []
-            for line in att_text.split('\n'):
-                lower_line = line.lower()
-                if any(kw in lower_line for kw in ['error', 'exception', 'fail', 'warning', 'crash', 'stack', 'at ']):
-                    log_lines.append(line)
-            log_excerpt = '\n'.join(log_lines[:50])  # Limit to 50 key lines
-            attachment_content += f"\n--- File: {att_name} ---\n{log_excerpt[:2000]}\n"
+            # Scan log against all error patterns
+            matches = scan_log_with_patterns(att_text, error_patterns, context_lines=20)
+
+            if matches:
+                attachment_content += f"\n--- File: {att_name} ---\n"
+
+                for match in matches:
+                    rule = match['rule']
+                    matched_line = match['matched_line']
+                    context = match['context']
+                    line_num = match['line_number']
+
+                    # Format matched rule info
+                    source_file = rule.get('_source_file', 'Unknown')
+                    rule_info = f"""
+### [Rule #{rule.get('Index', '?')}] {rule.get('Module', 'Unknown')} - 来源: {source_file}.json
+- **Keywords**: {rule.get('Keywords', '')}
+- **Owner**: {rule.get('Owner', 'N/A')}
+- **Extra Info**: {rule.get('Extra Info', '')}
+- **Priority**: {rule.get('Priority', 'N/A')}
+- **Comment**: {rule.get('Comment', '')}
+
+**Matched Line** (Line {line_num}):
+```
+{matched_line}
+```
+
+**Context** (±20 lines):
+```
+{context}
+```
+"""
+                    attachment_content += rule_info + "\n"
+
+                    # Add to summary for reporting
+                    pattern_matches_summary.append({
+                        'file': att_name,
+                        'module': rule.get('Module', 'Unknown'),
+                        'source_file': rule.get('_source_file', 'Unknown'),
+                        'owner': rule.get('Owner', 'N/A'),
+                        'priority': rule.get('Priority', 'N/A'),
+                        'comment': rule.get('Comment', ''),
+                        'keywords': rule.get('Keywords', ''),
+                        'matched_line': matched_line[:200],
+                        'line_number': line_num
+                    })
+            else:
+                # No pattern matched, include generic key log lines as fallback
+                log_lines = []
+                for line in att_text.split('\n'):
+                    lower_line = line.lower()
+                    if any(kw in lower_line for kw in ['error', 'exception', 'fail', 'warning', 'crash']):
+                        log_lines.append(line)
+                log_excerpt = '\n'.join(log_lines[:30])
+                if log_excerpt:
+                    attachment_content += f"\n--- File: {att_name} (No pattern matched, key logs) ---\n{log_excerpt[:1500]}\n"
+
+    # Add pattern match summary at the end
+    if pattern_matches_summary:
+        attachment_content += "\n\n=== PATTERN MATCH SUMMARY ===\n"
+        for i, m in enumerate(pattern_matches_summary, 1):
+            attachment_content += f"""
+{i}. [{m['module']}] 来源: {m['source_file']}.json | Priority={m['priority']} | {m['comment']}
+   - Keywords: {m['keywords']}
+   - Owner: {m['owner']}
+   - File: {m['file']} Line: {m['line_number']}
+   - Match: {m['matched_line'][:100]}...
+"""
 
     # Language instruction
     if output_language == 'en':

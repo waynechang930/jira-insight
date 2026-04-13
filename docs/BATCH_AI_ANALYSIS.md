@@ -17,8 +17,24 @@
 - **多 AI 支援**：支援 OpenAI、RTK LLM、DeepSeek 三種 AI 引擎
 - **預覽後更新**：先預覽 AI 分析結果，確認後再寫入 Jira
 - **靈活輸入**：支援 Saved Filter ID 或 JQL 查詢
+- **多模組掃描**：掃描 54+ 個錯誤模組，自動匹配根因規則 (需額外下載)
 
-### 1.3 核心功能
+### 1.3 準確度說明
+
+> **注意**：啟用多模組錯誤模式掃描會增加分析時間，但大幅提升準確率
+
+| 模式 | 分析速度 | 準確率 | 說明 |
+|------|----------|--------|------|
+| 快速模式 | 快 | 中 | 只篩選 error/warning/exception 關鍵字 |
+| 多模組掃描 | 慢 | 高 | 掃描 54+ 模組的 2600+ 條規則，自動匹配 Owner、Priority |
+
+**為什麼多模組掃描更準確？**
+- 每個錯誤會對應到正確的 Module 和 Owner
+- 可取得該問題的 Priority 等級
+- 自動擷取 ±20 行上下文給 AI 分析
+- 可看到 Rule 的 Comment 說明
+
+### 1.4 核心功能
 
 | 功能 | 說明 |
 |------|------|
@@ -132,7 +148,44 @@ DEEPSEEK_LLM_API_KEY=sk-xxxxx
 - 貼上後重啟 Flask 服務
 - 建議使用 Chrome 瀏覽器複製 Cookie
 
-### 2.4 啟動服務
+### 2.5 下載錯誤模式檔案 (機密資料，內部專用)
+
+> **⚠️ 重要**：此資料為內部機密，請勿上傳至公開 GitHub！
+
+`errorlogpattern_keyword/` 目錄包含 54+ 模組的錯誤關鍵字規則，用於精準匹配問題根因。此資料夾已加入 `.gitignore`，不會同步到 GitHub。
+
+**下載方式（需在公司內網）：**
+
+```bash
+# 方法 1: 使用 wget/curl 從 Gerrit 下載
+# 訪問 https://mm2sd.rtkbf.com/gerrit/plugins/gitiles/realtek/errorlogpattern/+/refs/heads/realtek/master/
+# 下載 keyword_tv006 目錄內容
+
+# 方法 2: 直接從公司內網複製
+# 從 \\file_server\shared\errorlogpattern_keyword\ 複製到專案目錄
+```
+
+**放置位置：**
+```
+jira-insight/
+├── errorlogpattern_keyword/   ← 放在這裡
+│   ├── bootcode.json
+│   ├── Kernel.json
+│   ├── vdec.json
+│   └── ... (54+ 個模組)
+├── app.py
+├── templates/
+└── ...
+```
+
+**驗證是否正確載入：**
+啟動 app.py 後，分析日誌時會顯示：
+```
+[ErrorPattern] Loading 54 pattern files...
+[ErrorPattern] Total patterns loaded: 2623
+```
+
+### 2.6 啟動服務
 
 ```bash
 python app.py
