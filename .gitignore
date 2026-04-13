@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+*.egg-info/
+dist/build/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+test_*.py
+test_jira_conn.py
+verify_similarity.py
+test_decompressed/
+attachments/
+
+# Backup
+app.py_bak
+
+# Logs
+*.log

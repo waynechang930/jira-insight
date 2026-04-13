@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira Historical Analysis Retrieval System</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .header-bar { background-color: #0052cc; color: white; padding: 15px 0; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card-header { background-color: white; border-bottom: 2px solid #f0f0f0; font-weight: 600; color: #42526e; }
+        .btn-compare { background-color: #0052cc; color: white; }
+        .btn-compare:hover { background-color: #0047b3; color: white; }
+        .btn-ai { background-color: #36b37e; color: white; }
+        .btn-ai:hover { background-color: #30a171; color: white; }
+        .score-badge { font-size: 0.9em; padding: 5px 10px; border-radius: 12px; }
+        .score-high { background-color: #e3fcef; color: #006644; }
+        .score-med { background-color: #fff0b3; color: #172b4d; }
+        .ai-result-box { background-color: #fff; border-left: 5px solid #36b37e; padding: 20px; border-radius: 4px; overflow-wrap: break-word; }
+        /* Markdown Styles inside AI Box */
+        .ai-result-box h2 { font-size: 1.25rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 1rem; color: #36b37e; }
+        .ai-result-box h2:first-child { margin-top: 0; }
+        .ai-result-box ul { padding-left: 1.2rem; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header-bar">
+        <div class="container d-flex align-items-center">
+            <i class="fa-brands fa-jira fa-2x me-3"></i>
+            <h3 class="m-0 fw-bold">Jira Historical Analysis Retrieval System</h3>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="row">
+            <!-- Left Panel: Input -->
+            <div class="col-md-4">
+                <div class="card p-3">
+                    <div class="card-body">
+                        <h5 class="card-title mb-3"><i class="fa-solid fa-magnifying-glass me-2"></i> Analysis Settings</h5>
+                        
+                        <div class="mb-3">
+                            <label for="jiraId" class="form-label fw-bold">Target Jira ID</label>
+                            <input type="text" class="form-control" id="jiraId" placeholder="e.g., RKTC2875P-865">
+                            <div class="form-text">System will fetch summary and description for comparison.</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="apiKey" class="form-label fw-bold">OpenAI API Key (Optional)</label>
+                            <input type="password" class="form-control" id="apiKey" placeholder="sk-proj-...">
+                            <div class="form-text">Required for AI Analysis. Stored locally in browser.</div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-compare" onclick="runCompare()">
+                                <i class="fa-solid fa-list-ol me-2"></i> Compare Analysis
+                            </button>
+                            <button class="btn btn-ai" onclick="runAI()">
+                                <i class="fa-solid fa-robot me-2"></i> AI Analysis
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Results -->
+            <div class="col-md-8">
+                <!-- Target Issue Info -->
+                <div class="card" id="targetInfoCard" style="display:none;">
+                    <div class="card-body bg-light">
+                        <h6 class="text-muted text-uppercase mb-1">Analyzing Target</h6>
+                        <h5 class="card-title text-primary" id="targetSummary"></h5>
+                    </div>
+                </div>
+
+                <!-- Similarity List -->
+                <div class="card" id="resultCard" style="display:none;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fa-solid fa-layer-group me-2"></i> Similar Historical Issues</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-3" style="width: 20%">Jira Key</th>
+                                        <th style="width: 15%">Score</th>
+                                        <th style="width: 65%">Summary / Resolution Preview</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="resultTableBody">
+                                    <!-- JS will populate this -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Analysis Result -->
+                <div class="card mt-3" id="aiCard" style="display:none;">
+                    <div class="card-header bg-success text-white">
+                        <span><i class="fa-solid fa-brain me-2"></i> AI Analysis Report</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="aiContent" class="ai-result-box"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status"></div>
+        <h5 class="mt-3 text-secondary" id="loadingText">Retrieving data...</h5>
+    </div>
+
+    <!-- JavaScript -->
+    <script>
+        // Load API Key from LocalStorage on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedKey = localStorage.getItem('openai_api_key');
+            if (savedKey) document.getElementById('apiKey').value = savedKey;
+        });
+
+        // Save API Key to LocalStorage on input
+        document.getElementById('apiKey').addEventListener('input', (e) => {
+            localStorage.setItem('openai_api_key', e.target.value);
+        });
+
+        function showLoading(text) {
+            document.getElementById('loadingText').innerText = text;
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        async function runCompare() {
+            const jiraId = document.getElementById('jiraId').value.trim();
+            if (!jiraId) return alert('Please enter a Jira ID');
+
+            showLoading('Connecting to Jira and searching vector database...');
+            
+            // Clear previous AI results when running comparison
+            document.getElementById('aiCard').style.display = 'none';
+
+            try {
+                const response = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ jira_id: jiraId })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) throw new Error(data.error || 'Unknown Error');
+
+                renderResults(data);
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function runAI() {
+            const jiraId = document.getElementById('jiraId').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            if (!jiraId) return alert('Please enter a Jira ID');
+            if (!apiKey) return alert('OpenAI API Key is required for AI Analysis');
+
+            // Optionally run comparison first to refresh context/UI
+            await runCompare();
+
+            showLoading('AI is analyzing historical data (approx. 10-20 seconds)...');
+
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ jira_id: jiraId, api_key: apiKey })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) throw new Error(data.error || 'AI Analysis Failed');
+
+                document.getElementById('aiContent').innerHTML = data.ai_result;
+                document.getElementById('aiCard').style.display = 'block';
+                // Smooth scroll to results
+                document.getElementById('aiCard').scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                alert('AI Analysis Failed: ' + err.message);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function renderResults(data) {
+            // Update Target Info Header
+            document.getElementById('targetSummary').innerText = `[${document.getElementById('jiraId').value}] ${data.target_summary}`;
+            document.getElementById('targetInfoCard').style.display = 'block';
+
+            // Populate Results Table
+            const tbody = document.getElementById('resultTableBody');
+            tbody.innerHTML = '';
+
+            data.results.forEach(item => {
+                const scoreClass = item.score > 70 ? 'score-high' : 'score-med';
+                const tr = `
+                    <tr>
+                        <td class="ps-3"><a href="${item.link}" target="_blank" class="fw-bold text-decoration-none">${item.key}</a></td>
+                        <td><span class="score-badge ${scoreClass}">${item.score}%</span></td>
+                        <td>
+                            <div class="fw-bold text-dark">${item.summary}</div>
+                            <small class="text-muted"><i class="fa-solid fa-wrench me-1"></i>${item.resolution}</small>
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += tr;
+            });
+
+            document.getElementById('resultCard').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
