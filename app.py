@@ -928,18 +928,26 @@ def convert_to_jira_wiki(text):
     import re
     text = re.sub(r'<[^>]+>', '', text)
 
-    # Convert headers
-    text = re.sub(r'^### (.+)$', r'h4. \1', text, flags=re.MULTILINE)
-    text = re.sub(r'^## (.+)$', r'h3. \1', text, flags=re.MULTILINE)
-    text = re.sub(r'^# (.+)$', r'h2. \1', text, flags=re.MULTILINE)
+    # Convert headers (reduce level: ### -> h2., ## -> h2., # -> h1.)
+    text = re.sub(r'^#### (.+)$', r'h3. \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.+)$', r'h3. \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$', r'h2. \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^# (.+)$', r'h1. \1', text, flags=re.MULTILINE)
 
-    # Convert bold/italic
-    text = re.sub(r'\*\*\*(.+?)\*\*\*', r'_\1_', text)
+    # Convert text styles
+    # Bold: **text** -> *text*
     text = re.sub(r'\*\*(.+?)\*\*', r'*\1*', text)
-    text = re.sub(r'\*(.+?)\*', r'_\1_', text)
+    # Italic: *text* or _text_ -> _text_
+    text = re.sub(r'(?<![\*\w])\*(?!\*)(.+?)\*(?!\*)', r'_\1_', text)
+    # Strikethrough: ~~text~~ -> -text-
+    text = re.sub(r'~~(.+?)~~', r'-\1-', text)
+    # Underline: ++text++ -> +text+
+    text = re.sub(r'\+\+(.+?)\+\+', r'+\1+', text)
 
-    # Convert code blocks
-    text = re.sub(r'```(\w+)?\n(.+?)```', r'{{\2}}', text, flags=re.DOTALL)
+    # Convert code blocks - use {noformat} for large blocks (logs)
+    # First handle multiline code blocks
+    text = re.sub(r'```(\w*)\n(.+?)```', r'{noformat}\n\2\n{noformat}', text, flags=re.DOTALL)
+    # Then handle inline code
     text = re.sub(r'`(.+?)`', r'{{\1}}', text)
 
     # Convert tables (simplified)
@@ -956,9 +964,12 @@ def convert_to_jira_wiki(text):
         new_lines.append(line)
     text = '\n'.join(new_lines)
 
-    # Convert lists
-    text = re.sub(r'^[-*] (.+)$', r'# \1', text, flags=re.MULTILINE)
+    # Convert lists (Jira uses * for bullet, # for numbered)
+    text = re.sub(r'^[-*] (.+)$', r'* \1', text, flags=re.MULTILINE)
     text = re.sub(r'^\d+\. (.+)$', r'# \1', text, flags=re.MULTILINE)
+
+    # Convert links [text](url) -> [text|url]
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1|\2]', text)
 
     return text
 
