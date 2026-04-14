@@ -280,8 +280,8 @@ def get_open_issues_by_project(project_key, limit=50):
         print(f"[ProjectScan] Connection error validating project: {e}")
         return None
 
-    # JQL: Use status instead of resolution (more reliable)
-    jql = f'project = "{project_key}" AND status != Done ORDER BY created DESC'
+    # JQL: Exclude all resolved/closed/done statuses
+    jql = f'project = "{project_key}" AND status NOT IN ("Done", "Resolved", "Closed", "Fixed") ORDER BY created DESC'
 
     params = {
         "jql": jql,
