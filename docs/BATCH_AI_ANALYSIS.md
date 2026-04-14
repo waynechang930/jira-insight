@@ -341,7 +341,31 @@ AI 分析報告包含：
 
 ---
 
-## 8. 授權與感謝
+## 8. 版本紀錄
+
+### v1.1.0 (2026-04-14)
+**Commit**: `bcd7f86` - Add multi-module error pattern matching for accurate root cause analysis
+
+新增功能：
+- 多模組錯誤模式掃描（54+ 模組，2600+ 規則）
+- 自動匹配 Owner、Priority、Comment
+- 顯示 ±20 行上下文
+- 修正 Jira Wiki Markup 語法
+
+### v1.2.0 (2026-04-14)
+**Commit**: (最新)
+
+新增功能：
+- 附件日期排序與篩選
+- 可勾選特定日期進行分析
+- 未勾選時自動分析最新2個日期的附件
+- Token 數量檢查（196608上限）
+- 顯示可讀的 Markdown 格式結果
+- 已分析檔案標註綠色
+
+---
+
+## 9. 授權與感謝
 
 本工具使用以下開源專案：
 - Flask - Web Framework

@@ -660,8 +660,12 @@
                     created: issue.created || '',
                     link: issue.link || `${JIRA_BASE_URL}/browse/${issue.key}`,
                     attachments: issue.attachments || [],
+                    attachment_dates: [],  // Array of {date, count}
+                    selected_dates: [],    // Dates selected by user
                     analyzed: false,
                     analysis_result: null,
+                    analyzed_files: [],
+                    analyzed_dates: [],
                     updated_to_jira: false
                 }));
 
@@ -713,10 +717,16 @@
                     ? issue.attachments.map(a => `<span class="attachment-item"><i class="fa-solid fa-paperclip me-1"></i>${a.filename}</span>`).join('')
                     : '<span class="text-muted">無附件</span>';
 
-                // Show analyzed files if available
+                // Show analyzed dates if available
+                if (issue.analyzed_dates && issue.analyzed_dates.length > 0) {
+                    attachmentsHtml += '<div class="mt-1"><span class="text-success small"><i class="fa-solid fa-calendar me-1"></i>已分析日期:</span> ' +
+                        issue.analyzed_dates.map(d => `<span class="badge bg-success me-1">${d}</span>`).join('') + '</div>';
+                }
+
+                // Show analyzed files if available (green color)
                 if (issue.analyzed_files && issue.analyzed_files.length > 0) {
-                    attachmentsHtml += '<div class="mt-1"><span class="text-success small"><i class="fa-solid fa-check-circle me-1"></i>已分析:</span> ' +
-                        issue.analyzed_files.map(f => `<span class="badge bg-success-subtle text-success ms-1">${f}</span>`).join('') + '</div>';
+                    attachmentsHtml += '<div class="mt-1"><span class="text-success small"><i class="fa-solid fa-file-lines me-1"></i>已分析檔案:</span> ' +
+                        issue.analyzed_files.map(f => `<span class="badge bg-success-subtle text-success border border-success ms-1">${f}</span>`).join('') + '</div>';
                 }
 
                 let statusBadges = [];
@@ -752,7 +762,7 @@
                             </div>
                         </div>
                         <div id="analysis-${originalIndex}" class="analysis-content" style="display:none;">
-                            <div class="p-2 bg-light rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-size: 0.85em;">${formatAnalysis(issue.analysis_result)}</div>
+                            <div class="p-2 bg-light rounded" style="max-height: 500px; overflow-y: auto; font-size: 0.85em;">${renderMarkdown(issue.analysis_result)}</div>
                         </div>
                     </div>
                 ` : '';
@@ -766,7 +776,7 @@
                                     <span class="ms-2 badge bg-secondary">${issue.status}</span>
                                     ${statusBadges.join('')}
                                 </div>
-                                <button class="btn btn-sm btn-outline-primary" onclick="analyzeIssue(${originalIndex})" ${issue.analyzed || issue.processing ? 'disabled' : ''}>
+                                <button class="btn btn-sm btn-outline-primary" onclick="fetchAttachmentDates(${originalIndex})" ${issue.analyzed || issue.processing ? 'disabled' : ''}>
                                     <i class="fa-solid fa-play me-1"></i>分析
                                 </button>
                             </div>
@@ -919,6 +929,141 @@
             if (updateAllBtn) updateAllBtn.disabled = analyzed === 0;
         }
 
+        // Fetch attachment dates for an issue
+        async function fetchAttachmentDates(index) {
+            const issue = batchIssues[index];
+            if (issue.attachment_dates.length > 0) {
+                // Already fetched, just show selector
+                showDateSelector(index);
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/batch_get_attachment_dates', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ issue_key: issue.key })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to get dates');
+
+                issue.attachment_dates = data.dates || [];
+                showDateSelector(index);
+            } catch (err) {
+                alert(`Error fetching dates: ${err.message}`);
+            }
+        }
+
+        // Show date selector modal
+        function showDateSelector(index) {
+            const issue = batchIssues[index];
+            const dates = issue.attachment_dates;
+
+            if (!dates || dates.length === 0) {
+                alert('No valid attachments with dates found');
+                return;
+            }
+
+            // Build date options
+            const options = dates.map(d =>
+                `<label class="d-block"><input type="checkbox" class="date-checkbox me-2" value="${d.date}" ${issue.selected_dates.includes(d.date) ? 'checked' : ''}>${d.date} (${d.count} files)</label>`
+            ).join('');
+
+            const html = `
+                <div class="modal d-block" style="background:rgba(0,0,0,0.5)" onclick="if(event.target.classList.contains('modal'))document.getElementById('dateSelectorModal').remove()">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">選擇分析日期 - ${issue.key}</h5>
+                                <button type="button" class="btn-close" onclick="document.getElementById('dateSelectorModal').remove()"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="text-muted">預設自動分析最近2個日期的附件。如需分析特定日期，請勾選：</p>
+                                <div class="form-check mb-2">
+                                    <input type="checkbox" class="form-check-input" id="selectAllDates" onchange="toggleAllDates(this)">
+                                    <label class="form-check-label" for="selectAllDates">全選</label>
+                                </div>
+                                <div class="border rounded p-2" style="max-height:200px;overflow-y:auto">
+                                    ${options}
+                                </div>
+                                <div class="mt-2 text-info small"><i class="fa-solid fa-info-circle"></i> 如未勾選，將自動分析最新的2個日期</div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('dateSelectorModal').remove()">取消</button>
+                                <button type="button" class="btn btn-primary" onclick="confirmDateSelection(${index})">確認並分析</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Remove existing modal if any
+            const existing = document.getElementById('dateSelectorModal');
+            if (existing) existing.remove();
+
+            // Create modal
+            const modal = document.createElement('div');
+            modal.id = 'dateSelectorModal';
+            modal.innerHTML = html;
+            document.body.appendChild(modal);
+        }
+
+        function toggleAllDates(checkbox) {
+            const checkboxes = document.querySelectorAll('#dateSelectorModal .date-checkbox');
+            checkboxes.forEach(cb => cb.checked = checkbox.checked);
+        }
+
+        function confirmDateSelection(index) {
+            const issue = batchIssues[index];
+            const checkboxes = document.querySelectorAll('#dateSelectorModal .date-checkbox:checked');
+            issue.selected_dates = Array.from(checkboxes).map(cb => cb.value);
+
+            // Remove modal
+            document.getElementById('dateSelectorModal').remove();
+
+            // Analyze the issue
+            analyzeIssue(index);
+        }
+
+        // Render markdown as HTML
+        function renderMarkdown(text) {
+            if (!text) return '';
+
+            // Escape HTML
+            let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Headers
+            html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+            html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+            html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+
+            // Bold and italic
+            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+            // Code blocks (multiline)
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-light p-2 rounded"><code>$2</code></pre>');
+
+            // Inline code
+            html = html.replace(/`(.+?)`/g, '<code class="bg-light px-1 rounded">$1</code>');
+
+            // Lists
+            html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+            html = html.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+
+            // Links
+            html = html.replace(/\[([^\]]+)\|([^\]]+)\]/g, '<a href="$2" target="_blank">$1</a>');
+
+            // Line breaks
+            html = html.replace(/\n\n/g, '</p><p>');
+            html = html.replace(/\n/g, '<br>');
+
+            return `<p>${html}</p>`;
+        }
+
         async function analyzeIssue(index) {
             const issue = batchIssues[index];
             const outputLang = document.getElementById('outputLanguage').value;
@@ -935,16 +1080,23 @@
                     body: JSON.stringify({
                         issue_key: issue.key,
                         ai_tool: selectedAITool,
-                        output_language: outputLang
+                        output_language: outputLang,
+                        selected_dates: issue.selected_dates || null
                     })
                 });
 
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'Analysis Failed');
 
+                // Check token warning
+                if (data.token_warning) {
+                    alert(data.token_warning);
+                }
+
                 issue.analyzed = true;
                 issue.analysis_result = data.analysis;
                 issue.analyzed_files = data.analyzed_files || [];
+                issue.analyzed_dates = data.analyzed_dates || [];
             } catch (err) {
                 alert(`Error analyzing ${issue.key}: ${err.message}`);
             } finally {

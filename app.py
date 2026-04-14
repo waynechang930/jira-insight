@@ -540,6 +540,43 @@ def api_batch_load_issues():
         return jsonify({"error": f"Failed to load issues: {str(e)}"}), 500
 
 
+@app.route('/api/batch_get_attachment_dates', methods=['POST'])
+def api_batch_get_attachment_dates():
+    """Get unique attachment dates for an issue"""
+    data = request.json
+    issue_key = data.get('issue_key')
+
+    if not issue_key:
+        return jsonify({"error": "Issue key is required"}), 400
+
+    try:
+        # Get attachment info with dates
+        attachments = get_attachments_info(issue_key)
+
+        # Group by date and count
+        date_counts = {}
+        for att in attachments:
+            d = att.get('date', '')
+            if d:
+                date_counts[d] = date_counts.get(d, 0) + 1
+
+        # Convert to list with count and sorted by date descending
+        dates_list = [{'date': d, 'count': c} for d, c in date_counts.items()]
+        dates_list.sort(key=lambda x: x['date'], reverse=True)
+
+        return jsonify({
+            'dates': dates_list,
+            'total_attachments': len(attachments)
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to get attachment dates: {str(e)}"}), 500
+
+
+def count_tokens(text):
+    """Estimate token count (rough approximation: ~4 chars per token)"""
+    return len(text) // 4
+
+
 @app.route('/api/batch_analyze', methods=['POST'])
 def api_batch_analyze():
     """Analyze a single issue with attachments using AI"""
@@ -547,6 +584,7 @@ def api_batch_analyze():
     issue_key = data.get('issue_key')
     ai_tool = data.get('ai_tool', 'openai')  # openai, rtk, deepseek
     output_language = data.get('output_language', 'en')  # en or zh
+    selected_dates = data.get('selected_dates', None)  # List of dates to analyze
 
     if not issue_key:
         return jsonify({"error": "Issue key is required"}), 400
@@ -556,8 +594,8 @@ def api_batch_analyze():
     if not issue_text:
         return jsonify({"error": "Failed to fetch issue from Jira"}), 404
 
-    # Download and analyze attachments
-    attachment_texts = download_and_analyze_attachments(issue_key)
+    # Download and analyze attachments (with date filter)
+    attachment_texts, analyzed_dates, analyzed_files = download_and_analyze_attachments(issue_key, selected_dates)
 
     # Load error patterns from JSON files
     error_patterns = load_all_error_patterns()
@@ -663,6 +701,14 @@ Issue Details:
 
 Format your response clearly with headers."""
 
+    # Check token count before calling AI
+    MAX_TOKENS = 196608
+    estimated_tokens = count_tokens(analysis_prompt)
+    token_warning = None
+
+    if estimated_tokens > MAX_TOKENS:
+        token_warning = f"Warning: Estimated token count ({estimated_tokens:,}) exceeds limit ({MAX_TOKENS:,}). Please select fewer dates or reduce attachment size."
+
     # Call AI
     try:
         ai_result = call_ai_with_tool(analysis_prompt, ai_tool)
@@ -682,7 +728,10 @@ Format your response clearly with headers."""
         return jsonify({
             "analysis": ai_result,
             "attachments": original_attachments,
-            "analyzed_files": analyzed_names
+            "analyzed_files": analyzed_names,
+            "analyzed_dates": analyzed_dates,
+            "token_warning": token_warning,
+            "estimated_tokens": estimated_tokens
         })
     except Exception as e:
         return jsonify({"error": f"AI Analysis failed: {str(e)}"}), 500
@@ -755,13 +804,8 @@ def call_ai_with_tool(prompt, tool='openai'):
     return response.choices[0].message.content
 
 
-def download_and_analyze_attachments(issue_key):
-    """Download attachments, extract archives, and analyze txt files"""
-    # Create attachment directory
-    att_dir = os.path.join(ATTACHMENTS_BASE_DIR, issue_key)
-    os.makedirs(att_dir, exist_ok=True)
-
-    # Get issue attachments
+def get_attachments_info(issue_key):
+    """Get attachment info including dates"""
     url = f"{JIRA_BASE_URL}/rest/api/2/issue/{issue_key}?fields=attachment"
     headers = {"Content-Type": "application/json"}
 
@@ -771,15 +815,115 @@ def download_and_analyze_attachments(issue_key):
             return []
 
         attachments = response.json().get('fields', {}).get('attachment', [])
-        txt_contents = []
-
-        print(f"[Attachment] Found {len(attachments)} attachments for {issue_key}")
+        result = []
 
         for att in attachments:
             filename = att.get('filename', '')
             att_id = att.get('id', '')
-            download_url = att.get('content', '')
-            mime_type = att.get('mimeType', '')
+            created = att.get('created', '')  # Format: 2024-01-15T10:30:00.000+0800
+
+            # Extract date part only (YYYY-MM-DD)
+            date_part = created.split('T')[0] if created else ''
+
+            # Check if it's a text/log file or archive
+            is_valid = (filename.endswith('.txt') or filename.endswith('.log') or
+                       filename.endswith('.zip') or filename.endswith('.tar') or
+                       filename.endswith('.tgz') or filename.endswith('.tar.gz') or
+                       filename.endswith('.gz'))
+
+            if is_valid and date_part:
+                result.append({
+                    'id': att_id,
+                    'filename': filename,
+                    'date': date_part,
+                    'created': created
+                })
+
+        return result
+    except Exception as e:
+        print(f"Error getting attachments info: {e}")
+        return []
+
+
+def download_and_analyze_attachments(issue_key, selected_dates=None):
+    """
+    Download attachments, extract archives, and analyze txt files
+
+    Args:
+        issue_key: Jira issue key
+        selected_dates: List of date strings (YYYY-MM-DD) to filter. If None, analyze top 2 latest.
+    """
+    # Create attachment directory
+    att_dir = os.path.join(ATTACHMENTS_BASE_DIR, issue_key)
+    os.makedirs(att_dir, exist_ok=True)
+
+    # Get issue attachments with dates
+    url = f"{JIRA_BASE_URL}/rest/api/2/issue/{issue_key}?fields=attachment"
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.get(url, headers=headers, auth=get_jira_auth(), timeout=30)
+        if response.status_code != 200:
+            return [], []
+
+        all_attachments = response.json().get('fields', {}).get('attachment', [])
+
+        # Filter attachments by date
+        attachments_to_download = []
+        attachment_info = []
+
+        for att in all_attachments:
+            filename = att.get('filename', '')
+            created = att.get('created', '')
+            date_part = created.split('T')[0] if created else ''
+
+            # Check if it's a text/log file or archive
+            is_valid = (filename.endswith('.txt') or filename.endswith('.log') or
+                       filename.endswith('.zip') or filename.endswith('.tar') or
+                       filename.endswith('.tgz') or filename.endswith('.tar.gz') or
+                       filename.endswith('.gz'))
+
+            if is_valid and date_part:
+                attachment_info.append({
+                    'id': att.get('id'),
+                    'filename': filename,
+                    'date': date_part,
+                    'created': created
+                })
+
+        # Determine which dates to analyze
+        if selected_dates and len(selected_dates) > 0:
+            # Filter to selected dates
+            dates_to_analyze = selected_dates
+            print(f"[Attachment] Using user-selected dates: {dates_to_analyze}")
+        else:
+            # Auto-select top 2 latest dates
+            date_counts = {}
+            for att in attachment_info:
+                d = att['date']
+                date_counts[d] = date_counts.get(d, 0) + 1
+
+            # Sort by date descending (newest first)
+            sorted_dates = sorted(date_counts.keys(), reverse=True)
+            dates_to_analyze = sorted_dates[:2]  # Top 2 latest dates
+            print(f"[Attachment] Auto-selected top 2 latest dates: {dates_to_analyze}")
+
+        # Filter attachments to download
+        attachments_to_download = [att for att in attachment_info if att['date'] in dates_to_analyze]
+
+        print(f"[Attachment] Found {len(all_attachments)} total attachments, will analyze {len(attachments_to_download)} from dates: {dates_to_analyze}")
+
+        txt_contents = []
+        analyzed_files = []
+
+        for att in attachments_to_download:
+            filename = att.get('filename', '')
+            att_id = att.get('id', '')
+
+            # Get download URL from original attachment data
+            original_att = next((a for a in all_attachments if a.get('id') == att_id), {})
+            download_url = original_att.get('content', '')
+            mime_type = original_att.get('mimeType', '')
 
             if not download_url and not att_id:
                 continue
@@ -868,8 +1012,13 @@ def download_and_analyze_attachments(issue_key):
         except:
             pass
 
+        # Track analyzed files
+        analyzed_files = [name for name, _ in txt_contents]
+
         print(f"[Attachment] Total files analyzed: {len(txt_contents)}")
-        return txt_contents
+        print(f"[Attachment] Analyzed dates: {dates_to_analyze}")
+        print(f"[Attachment] Analyzed files: {analyzed_files}")
+        return txt_contents, dates_to_analyze, analyzed_files
 
     except Exception as e:
         print(f"Error in download_and_analyze_attachments: {e}")
@@ -878,7 +1027,7 @@ def download_and_analyze_attachments(issue_key):
             shutil.rmtree(att_dir)
         except:
             pass
-        return []
+        return [], [], []
 
 
 def is_archive(filename):
@@ -910,13 +1059,13 @@ def is_valid_archive(file_path):
         return False
 
 
-def download_and_analyze_attachments_safe(issue_key):
+def download_and_analyze_attachments_safe(issue_key, selected_dates=None):
     """Wrapper with error handling for attachment download"""
     try:
-        return download_and_analyze_attachments(issue_key)
+        return download_and_analyze_attachments(issue_key, selected_dates)
     except Exception as e:
         print(f"Error in attachment download for {issue_key}: {e}")
-        return []
+        return [], [], []
 
 
 def convert_to_jira_wiki(text):
