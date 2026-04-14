@@ -266,20 +266,21 @@ def get_open_issues_by_project(project_key, limit=50):
     """
     url = f"{JIRA_BASE_URL}/rest/api/2/search"
     headers = {"Content-Type": "application/json"}
+    auth = get_jira_auth()
 
     # First, verify the project exists
     project_url = f"{JIRA_BASE_URL}/rest/api/2/project/{project_key}"
     try:
-        proj_response = requests.get(project_url, headers=headers, auth=get_jira_auth(), timeout=10)
+        proj_response = requests.get(project_url, headers=headers, auth=auth, timeout=10)
         if proj_response.status_code != 200:
-            print(f"Jira Project Error: Project '{project_key}' does not exist or is not accessible")
+            print(f"[ProjectScan] Project '{project_key}' validation failed: {proj_response.status_code}")
             return None  # Return None to indicate project not found
+        print(f"[ProjectScan] Project '{project_key}' validated successfully")
     except Exception as e:
-        print(f"Jira Connection Error: {e}")
+        print(f"[ProjectScan] Connection error validating project: {e}")
         return None
 
     # JQL: Use status instead of resolution (more reliable)
-    # Try Unresolved first, fallback to "not Done"
     jql = f'project = "{project_key}" AND status != Done ORDER BY created DESC'
 
     params = {
@@ -289,13 +290,15 @@ def get_open_issues_by_project(project_key, limit=50):
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response = requests.get(url, headers=headers, params=params, auth=auth, timeout=30)
         if response.status_code == 200:
-            return response.json().get('issues', [])
-        print(f"Jira Search Error: {response.status_code} {response.text}")
+            issues = response.json().get('issues', [])
+            print(f"[ProjectScan] Found {len(issues)} open issues for project '{project_key}'")
+            return issues
+        print(f"[ProjectScan] Search failed: {response.status_code} {response.text}")
         return []
     except Exception as e:
-        print(f"Jira Connection Error during search: {e}")
+        print(f"[ProjectScan] Search connection error: {e}")
         return []
 
 def generate_embedding(text, api_key):
