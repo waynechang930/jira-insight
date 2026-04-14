@@ -262,17 +262,30 @@ def get_jira_content(issue_key):
 def get_open_issues_by_project(project_key, limit=50):
     """
     Fetch unresolved issues from a specific project.
+    First verifies the project exists, then searches with fallback JQL.
     """
     url = f"{JIRA_BASE_URL}/rest/api/2/search"
     headers = {"Content-Type": "application/json"}
 
-    # JQL: Project matches AND Resolution is Unresolved
-    jql = f"project = {project_key} AND resolution = Unresolved ORDER BY created DESC"
+    # First, verify the project exists
+    project_url = f"{JIRA_BASE_URL}/rest/api/2/project/{project_key}"
+    try:
+        proj_response = requests.get(project_url, headers=headers, auth=get_jira_auth(), timeout=10)
+        if proj_response.status_code != 200:
+            print(f"Jira Project Error: Project '{project_key}' does not exist or is not accessible")
+            return None  # Return None to indicate project not found
+    except Exception as e:
+        print(f"Jira Connection Error: {e}")
+        return None
+
+    # JQL: Use status instead of resolution (more reliable)
+    # Try Unresolved first, fallback to "not Done"
+    jql = f'project = "{project_key}" AND status != Done ORDER BY created DESC'
 
     params = {
         "jql": jql,
         "maxResults": limit,
-        "fields": "summary,description"
+        "fields": "summary,description,status"
     }
 
     try:
@@ -371,8 +384,12 @@ def api_scan_project():
     if not project_key:
         return jsonify({"error": "Project Key is required"}), 400
 
-    open_issues = get_open_issues_by_project(project_key, limit=100) 
-    
+    open_issues = get_open_issues_by_project(project_key, limit=100)
+
+    # Check if project exists
+    if open_issues is None:
+        return jsonify({"error": f"Project '{project_key}' does not exist or is not accessible"}), 400
+
     if not open_issues:
         return jsonify({"message": "No unresolved issues found or Jira connection failed.", "matches": []})
 
