@@ -425,7 +425,7 @@
                 const response = await fetch('/api/search', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ jira_id: jiraId })
+                    body: JSON.stringify({ jira_id: jiraId, ai_tool: selectedAITool })
                 });
 
                 const data = await response.json();
@@ -480,7 +480,7 @@
                 const response = await fetch('/api/scan_project', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ project_key: projectKey })
+                    body: JSON.stringify({ project_key: projectKey, ai_tool: selectedAITool })
                 });
 
                 const data = await response.json();
