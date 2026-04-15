@@ -324,46 +324,15 @@ def generate_embedding(text, ai_tool='openai'):
     """
     Generate embedding vector based on selected AI tool:
     - 'openai' -> OpenAI API
-    - 'deepseek' -> DeepSeek API
-    - 'rtk' -> Local sentence-transformers
+    - 'deepseek' -> DeepSeek API (not available)
+    - 'rtk'/'local' -> Local sentence-transformers (free, offline)
     """
     text = text.replace("\n", " ")
     if not text or not text.strip():
         return [0.0] * 1536
 
-    if ai_tool == 'openai':
-        # Use OpenAI
-        if not SYSTEM_OPENAI_KEY:
-            print("[Embedding] ERROR: OpenAI key not configured")
-            return [0.0] * 1536
-        try:
-            client = openai.OpenAI(api_key=SYSTEM_OPENAI_KEY)
-            result = client.embeddings.create(input=[text], model="text-embedding-3-small")
-            print("[Embedding] Using OpenAI embedding")
-            return result.data[0].embedding
-        except Exception as e:
-            print(f"[Embedding] OpenAI error: {e}")
-            return [0.0] * 1536
-
-    elif ai_tool == 'deepseek':
-        # Use DeepSeek
-        if not DEEPSEEK_LLM_API_KEY:
-            print("[Embedding] ERROR: DeepSeek key not configured")
-            return [0.0] * 1536
-        try:
-            client = openai.OpenAI(
-                base_url="https://api.deepseek.com/v1",
-                api_key=DEEPSEEK_LLM_API_KEY
-            )
-            result = client.embeddings.create(input=[text], model="deepseek-embedding")
-            print("[Embedding] Using DeepSeek embedding")
-            return result.data[0].embedding
-        except Exception as e:
-            print(f"[Embedding] DeepSeek error: {e}")
-            return [0.0] * 1536
-
-    else:
-        # RTK or other -> use local model
+    # For search: always use local model (free)
+    if ai_tool == 'local' or ai_tool == 'rtk':
         model = get_local_embedding_model()
         if model:
             try:
@@ -371,14 +340,36 @@ def generate_embedding(text, ai_tool='openai'):
                 # Pad to 1536 dimensions
                 if len(result) < 1536:
                     result = result + [0.0] * (1536 - len(result))
-                print("[Embedding] Using local embedding (padded to 1536d)")
+                print("[Embedding] Using local embedding (for search)")
                 return result
             except Exception as e:
                 print(f"[Embedding] Local model error: {e}")
                 return [0.0] * 1536
-
-        print("[Embedding] ERROR: No embedding method available")
+        print("[Embedding] ERROR: Local model not available")
         return [0.0] * 1536
+
+    elif ai_tool == 'openai':
+        # Use OpenAI
+        if not SYSTEM_OPENAI_KEY:
+            print("[Embedding] WARNING: OpenAI key not configured, falling back to local")
+            return generate_embedding(text, 'local')
+        try:
+            client = openai.OpenAI(api_key=SYSTEM_OPENAI_KEY)
+            result = client.embeddings.create(input=[text], model="text-embedding-3-small")
+            print("[Embedding] Using OpenAI embedding")
+            return result.data[0].embedding
+        except Exception as e:
+            print(f"[Embedding] OpenAI error: {e}, falling back to local")
+            return generate_embedding(text, 'local')
+
+    elif ai_tool == 'deepseek':
+        # DeepSeek doesn't have embedding API, fallback to local
+        print("[Embedding] DeepSeek has no embedding API, falling back to local")
+        return generate_embedding(text, 'local')
+
+    else:
+        # Default to local
+        return generate_embedding(text, 'local')
 
 def search_db(query_vector, exclude_key, top_k=5):
     """Search the vector database for similar issues."""
@@ -421,8 +412,9 @@ def api_search():
         return jsonify({"error": "Jira Issue not found or connection failed"}), 404
 
     try:
-        # Use embedding method matching selected AI tool
-        vector = generate_embedding(issue_text, ai_tool)
+        # For search, always use local model (free, offline)
+        # For analysis, use selected AI tool
+        vector = generate_embedding(issue_text, 'local')
     except Exception as e:
         return jsonify({"error": f"Failed to generate embedding: {str(e)}"}), 500
 
@@ -489,8 +481,8 @@ def api_scan_project():
 
             issue_text = f"Issue: {summary}. Description: {description[:1000]}"
 
-            # Generate Embedding - use selected AI tool's embedding method
-            vector = generate_embedding(issue_text, ai_tool)
+            # Generate Embedding - always use local model for search
+            vector = generate_embedding(issue_text, 'local')
 
             # Skip if no embedding available
             if all(v == 0.0 for v in vector):
