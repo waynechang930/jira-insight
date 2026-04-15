@@ -301,13 +301,76 @@ def get_open_issues_by_project(project_key, limit=50):
         print(f"[ProjectScan] Search connection error: {e}")
         return []
 
-def generate_embedding(text, api_key):
-    """Generate embedding vector using OpenAI."""
-    client = openai.OpenAI(api_key=api_key)
+# Local embedding model (lazy load)
+_local_model = None
+
+def get_local_embedding_model():
+    """Get or initialize local embedding model"""
+    global _local_model
+    if _local_model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            # Using a fast, lightweight model - 384 dimensions
+            # Note: This will produce 384-dim vectors, may not match DB
+            _local_model = SentenceTransformer('all-MiniLM-L6-v2')
+            print("[Embedding] Local model loaded: all-MiniLM-L6-v2 (384d)")
+        except Exception as e:
+            print(f"[Embedding] Failed to load local model: {e}")
+            return None
+    return _local_model
+
+
+def generate_embedding(text, preferred_api_key=None):
+    """
+    Generate embedding vector with fallback chain:
+    1. OpenAI (if key provided)
+    2. DeepSeek (if key exists in env)
+    3. Local sentence-transformers model
+    """
     text = text.replace("\n", " ")
     if not text or not text.strip():
-        return [0.0] * 1536 
-    return client.embeddings.create(input=[text], model="text-embedding-3-small").data[0].embedding
+        return [0.0] * 1536
+
+    # 1. Try OpenAI
+    if preferred_api_key and preferred_api_key.strip():
+        try:
+            client = openai.OpenAI(api_key=preferred_api_key)
+            result = client.embeddings.create(input=[text], model="text-embedding-3-small")
+            print("[Embedding] Using OpenAI embedding")
+            return result.data[0].embedding
+        except Exception as e:
+            print(f"[Embedding] OpenAI failed: {e}")
+
+    # 2. Try DeepSeek
+    if DEEPSEEK_LLM_API_KEY and DEEPSEEK_LLM_API_KEY.strip():
+        try:
+            client = openai.OpenAI(
+                base_url="https://api.deepseek.com/v1",
+                api_key=DEEPSEEK_LLM_API_KEY
+            )
+            result = client.embeddings.create(input=[text], model="deepseek-embedding")
+            print("[Embedding] Using DeepSeek embedding")
+            return result.data[0].embedding
+        except Exception as e:
+            print(f"[Embedding] DeepSeek failed: {e}")
+
+    # 3. Try local model
+    model = get_local_embedding_model()
+    if model:
+        try:
+            result = model.encode([text])[0].tolist()
+            # Pad to 1536 dimensions (or we can create a separate index)
+            # For now, pad with zeros
+            if len(result) < 1536:
+                result = result + [0.0] * (1536 - len(result))
+            print("[Embedding] Using local embedding (padded to 1536d)")
+            return result
+        except Exception as e:
+            print(f"[Embedding] Local model failed: {e}")
+
+    # 4. All failed - return zeros
+    print("[Embedding] WARNING: No embedding source available, returning zeros")
+    return [0.0] * 1536
 
 def search_db(query_vector, exclude_key, top_k=5):
     """Search the vector database for similar issues."""
@@ -349,9 +412,18 @@ def api_search():
         return jsonify({"error": "Jira Issue not found or connection failed"}), 404
 
     try:
-        vector = generate_embedding(issue_text, SYSTEM_OPENAI_KEY)
+        # Use fallback chain: OpenAI -> DeepSeek -> Local model
+        vector = generate_embedding(issue_text, None)
     except Exception as e:
         return jsonify({"error": f"Failed to generate embedding: {str(e)}"}), 500
+
+    # If vector is all zeros, skip DB search
+    if all(v == 0.0 for v in vector):
+        return jsonify({
+            "target_summary": issue_summary,
+            "results": [],
+            "warning": "No embedding API available, vector search skipped"
+        })
 
     results = search_db(vector, jira_id)
     
@@ -406,10 +478,14 @@ def api_scan_project():
             description = fields.get('description', '') or ''
             
             issue_text = f"Issue: {summary}. Description: {description[:1000]}"
-            
-            # Generate Embedding
-            vector = generate_embedding(issue_text, SYSTEM_OPENAI_KEY)
-            
+
+            # Generate Embedding - use fallback chain
+            vector = generate_embedding(issue_text, None)
+
+            # Skip if no embedding available
+            if all(v == 0.0 for v in vector):
+                continue
+
             # Search DB (Top 1 match is enough for screening)
             db_results = search_db(vector, key, top_k=1)
             
@@ -454,8 +530,16 @@ def api_analyze():
     if not issue_text:
         return jsonify({"error": "Jira Issue not found"}), 404
 
-    # 2. Generate Embedding (always use OpenAI for embedding)
-    vector = generate_embedding(issue_text, SYSTEM_OPENAI_KEY)
+    # 2. Generate Embedding - use the same AI tool's key for consistency
+    # If the selected AI tool has an embedding API, use it; otherwise fallback chain
+    if ai_tool == 'openai':
+        embedding_key = SYSTEM_OPENAI_KEY
+    elif ai_tool == 'deepseek':
+        embedding_key = DEEPSEEK_LLM_API_KEY
+    else:  # rtk or other
+        embedding_key = None  # RTK doesn't have embedding, will fallback
+
+    vector = generate_embedding(issue_text, embedding_key)
 
     # 3. Get Top 3 Context
     results = search_db(vector, jira_id, top_k=3)
