@@ -431,10 +431,8 @@ def api_search():
         return jsonify({"error": "Jira Issue not found or connection failed"}), 404
 
     try:
-        # OpenAI uses cloud embedding, others use local (free)
-        # User said: "open ai 繼續用雲端embedding api 其它用local的"
-        embedding_tool = 'openai' if ai_tool == 'openai' else 'local'
-        vector = generate_embedding(issue_text, embedding_tool)
+        # Use ai_tool directly: openai uses OpenAI API, rtk/deepseek uses RTK API
+        vector = generate_embedding(issue_text, ai_tool)
     except Exception as e:
         return jsonify({"error": f"Failed to generate embedding: {str(e)}"}), 500
 
@@ -477,6 +475,7 @@ def api_scan_project():
     data = request.json
     project_key = data.get('project_key')
     ai_tool = data.get('ai_tool', 'openai')  # openai, rtk, deepseek
+    print(f"[ProjectScan] Request received - project_key={project_key}, ai_tool={ai_tool}")
 
     if not project_key:
         return jsonify({"error": "Project Key is required"}), 400
@@ -501,9 +500,9 @@ def api_scan_project():
 
             issue_text = f"Issue: {summary}. Description: {description[:1000]}"
 
-            # Generate Embedding - OpenAI uses cloud, others use local
-            embedding_tool = 'openai' if ai_tool == 'openai' else 'local'
-            vector = generate_embedding(issue_text, embedding_tool)
+            # Generate Embedding - pass ai_tool directly (openai/rtk/deepseek)
+            # generate_embedding() will use RTK for rtk/deepseek, OpenAI for openai
+            vector = generate_embedding(issue_text, ai_tool)
 
             # Skip if no embedding available
             if all(v == 0.0 for v in vector):

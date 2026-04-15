@@ -473,8 +473,9 @@
             const projectKey = document.getElementById('projectKey').value.trim();
             if (!projectKey) return alert('Please enter a Project Key');
 
-            // Use selected AI tool for embedding (from Batch Analysis selection)
-            const aiTool = selectedAITool;
+            // Use selected AI tool from Single Issue Analysis tab (same tab as Project Scan)
+            const aiTool = selectedSingleAITool;
+            console.log('[DEBUG] runProjectScan - selectedSingleAITool:', selectedSingleAITool, 'sending:', aiTool);
 
             resetUI();
             showLoading(`Scanning unresolved issues in ${projectKey}... this may take a while.`);
@@ -614,6 +615,7 @@
 
         function selectAITool(tool, element) {
             selectedAITool = tool;
+            console.log('[DEBUG] selectAITool called with tool:', tool);
             document.querySelectorAll('.batch-ai-tool-btn').forEach(btn => btn.classList.remove('selected'));
             element.classList.add('selected');
         }

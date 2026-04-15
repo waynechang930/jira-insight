@@ -74,12 +74,6 @@ source venv/bin/activate  # Linux/Mac
 # 3. 安裝依賴
 pip install -r requirements.txt
 
-# 3.1 安裝本地 Embedding 模型 (可選，免費離線向量搜尋)
-# CPU-only 版本 (~200MB)，如需 GPU 加速可略過此步驟
-source venv/bin/activate
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install sentence-transformers
-
 # 4. 設定環境變數
 cp .env.example .env
 # 編輯 .env 填入你的設定 (特別是 JIRA_COOKIE)
@@ -210,7 +204,9 @@ python app.py
 1. **Single Issue Analysis** - 單一問題分析
 2. **Batch AI Analysis** - 批次 AI 分析
 3. **Project Scan** - 專案掃描
-   - 獨立選擇 Embedding 模型：OpenAI (雲端) 或 Local (免費)
+   - 根據選定的 AI 工具自動選擇對應的 Embedding 模型
+   - OpenAI → 雲端 Embedding API
+   - RTK/DeepSeek → RTK Embedding API (embedding-chattek-qwen)
    - 掃描專案中所有未解決的問題
    - 與歷史資料庫比對，找出相似度 ≥80% 的歷史問題
 
@@ -224,8 +220,8 @@ python app.py
 > **注意**：Embedding（向量搜尋）與 AI 分析使用不同的模型：
 > - **AI 分析**：使用選定的 AI 工具 (OpenAI/RTK/DeepSeek) 進行複雜的根因分析
 > - **向量搜尋**：
->   - OpenAI → 雲端 Embedding API
->   - RTK/DeepSeek/Local → 本地模型 (sentence-transformers) 或 TF-IDF fallback
+>   - OpenAI → 雲端 Embedding API (text-embedding-3-small)
+>   - RTK/DeepSeek → RTK Embedding API (embedding-chattek-qwen)
 
 #### Step 2: 輸入查詢條件
 
@@ -340,36 +336,18 @@ AI 分析報告包含：
 
 ## 7. Embedding 模型比較
 
-### 7.1 安裝選項
+### 7.1 嵌入式模型
 
-| 安裝方式 | 大小 | 說明 |
-|----------|------|------|
-| CPU-only (推薦) | ~200MB | 使用 PyTorch CPU 版本，適用於無 GPU 的環境 |
-| GPU 加速 | ~3GB+ | 需要 NVIDIA GPU + CUDA，運算速度較快 |
-
-**安裝指令：**
-```bash
-# CPU-only (推薦)
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install sentence-transformers
-
-# GPU 版本 (需要 NVIDIA GPU)
-pip install torch
-pip install sentence-transformers
-```
-
-### 7.2 效能比較
-
-| 模型 | 維度 | 搜尋速度 (100 issues) | 準確率 |
-|------|------|----------------------|--------|
-| OpenAI (雲端) | 1536 | 快 (API) | 高 |
-| sentence-transformers (CPU) | 384 | 中等 | 中 |
-| TF-IDF fallback | 1536 | 快 | 低 (<10%) |
+| 模型 | 維度 | 速度 | 說明 |
+|------|------|------|------|
+| OpenAI (text-embedding-3-small) | 1536 | 快 | 雲端 API，需 API Key |
+| RTK (embedding-chattek-qwen) | 2560→1536 | 快 | 內部 API，需 RTK_LLM_API_KEY |
+| TF-IDF fallback | 1536 | 快 | 無 API Key 時的備用方案 |
 
 **說明：**
-- 本地模型 (sentence-transformers) 產生的向量維度與 OpenAI 不同 (384 vs 1536)，透過 padding 處理
-- TF-IDF 為 fallback 方案，僅適用於簡單關鍵字匹配，相似度通常 <10%
-- 如需更高準確率，建議使用 OpenAI 雲端 Embedding API
+- RTK Embedding 返回 2560 維，自動截斷為 1536 維以匹配資料庫
+- RTK/DeepSeek 選擇時，自動使用 RTK Embedding API
+- 如無 API Key，系統會使用 TF-IDF fallback（準確率較低）
 
 ---
 
@@ -414,16 +392,17 @@ pip install sentence-transformers
 - 已分析檔案標註綠色
 - **分離 Embedding 與 AI 分析模型**：
   - AI 分析：使用選定的 AI 工具
-  - 向量搜尋：OpenAI 用雲端 API，其他用本地模型/TF-IDF fallback
-- Project Scan 新增 Embedding 模型選擇器 (OpenAI 雲端 / Local 免費)
+  - 向量搜尋：OpenAI 用雲端 API，RTK/DeepSeek 用 RTK Embedding API
+- Project Scan 根據選定的 AI 工具自動選擇對應的 Embedding
 
 ### v1.2.1 (2026-04-15)
 **Commit**: (最新)
 
 新增功能：
-- 本地 Embedding 模型正式支援 (sentence-transformers)
-- 提供 CPU-only 安裝選項 (~200MB)，無需 GPU
-- 文件加入本地模型安裝指南與效能比較
+- RTK/DeepSeek 選擇時自動使用 RTK Embedding API (embedding-chattek-qwen)
+- RTK Embedding 自動維度截斷 (2560→1536) 匹配資料庫
+- 移除 sentence-transformers 依賴（改用 RTK API）
+- Project Scan 使用正確的 Embedding 模型（從 Single Issue Analysis 選擇）
 
 ---
 
