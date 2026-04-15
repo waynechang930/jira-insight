@@ -357,15 +357,21 @@ def generate_embedding(text, ai_tool='openai'):
             return get_tfidf_embedding(text)
         try:
             import httpx
-            http_client = httpx.Client(proxies=False, timeout=30.0)
+            http_client = httpx.Client(timeout=30.0)
             client = openai.OpenAI(
                 base_url="https://devops.realtek.com/realgpt-api/openai-compatible/v1",
                 api_key=RTK_LLM_API_KEY,
                 http_client=http_client
             )
             result = client.embeddings.create(input=[text], model="embedding-chattek-qwen")
+            embedding = result.data[0].embedding
+            # RTK returns 2560 dims, truncate/pad to 1536 for DB compatibility
+            if len(embedding) > 1536:
+                embedding = embedding[:1536]
+            else:
+                embedding = embedding + [0.0] * (1536 - len(embedding))
             print(f"[Embedding] Using RTK embedding ({ai_tool})")
-            return result.data[0].embedding
+            return embedding
         except Exception as e:
             print(f"[Embedding] RTK error: {e}, using TF-IDF fallback")
             return get_tfidf_embedding(text)
