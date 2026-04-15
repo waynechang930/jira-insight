@@ -302,63 +302,36 @@ def get_open_issues_by_project(project_key, limit=50):
         return []
 
 # Local embedding model (lazy load)
-_local_model = None
-_tfidf_vectorizer = None
 _tfidf_vocab = None
 
-def get_local_embedding_model():
-    """Get or initialize local embedding model"""
-    global _local_model
-    if _local_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            # Using a fast, lightweight model - 384 dimensions
-            _local_model = SentenceTransformer('all-MiniLM-L6-v2')
-            print("[Embedding] Local model loaded: all-MiniLM-L6-v2 (384d)")
-        except Exception as e:
-            print(f"[Embedding] Failed to load local model: {e}")
-            return None
-    return _local_model
-
-
 def get_tfidf_embedding(text):
-    """Fallback: Use TF-IDF based embedding when sentence-transformers unavailable"""
-    global _tfidf_vectorizer, _tfidf_vocab
+    """Fallback: Use TF-IDF based embedding when no other embedding available"""
+    global _tfidf_vocab
 
     if _tfidf_vocab is None:
-        # Simple word-based vocabulary (common technical terms)
         common_words = [
             'error', 'exception', 'fail', 'crash', 'bug', 'fix', 'issue', 'problem',
             'null', 'undefined', 'timeout', 'connection', 'database', 'api', 'server',
-            'memory', 'performance', 'load', 'slow', 'memory', 'leak', 'stack', 'trace',
-            'warning', 'info', 'debug', 'config', 'setting', 'deployment', 'build',
+            'memory', 'performance', 'load', 'slow', 'leak', 'stack', 'trace',
+            'warning', 'info', 'debug', 'config', 'deployment', 'build',
             'test', 'production', 'staging', 'development', 'user', 'admin', 'login',
-            'authentication', 'authorization', 'permission', 'access', 'denied',
+            'authentication', 'permission', 'access', 'denied',
             'network', 'request', 'response', 'http', 'https', 'json', 'xml',
-            'java', 'python', 'javascript', 'node', 'react', 'angular', 'vue',
-            'sql', 'nosql', 'mongodb', 'redis', 'postgres', 'mysql', 'oracle',
+            'java', 'python', 'javascript', 'node', 'react', 'vue',
+            'sql', 'mongodb', 'redis', 'postgres', 'mysql',
             'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'cloud', 'linux', 'windows',
-            'file', 'directory', 'path', 'folder', 'upload', 'download', 'stream',
-            'cache', 'session', 'cookie', 'token', 'jwt', 'refresh', 'update', 'delete',
-            'insert', 'select', 'query', 'transaction', 'commit', 'rollback',
-            'lock', 'deadlock', 'race', 'condition', 'sync', 'async', 'await',
-            'thread', 'process', 'service', 'microservice', 'gateway', 'proxy',
-            'rate', 'limit', 'quota', 'throttle', 'queue', 'message', 'event',
-            'log', 'monitor', 'alert', 'metric', 'dashboard', 'sentry', 'datadog'
+            'file', 'directory', 'path', 'upload', 'download',
+            'cache', 'session', 'cookie', 'token', 'jwt'
         ]
         _tfidf_vocab = {word: i for i, word in enumerate(common_words)}
 
-    # Simple bag-of-words vector
     text_lower = text.lower()
     vector = [0.0] * len(_tfidf_vocab)
     for word, idx in _tfidf_vocab.items():
         if word in text_lower:
             vector[idx] = 1.0
 
-    # Pad to 1536 dimensions
     if len(vector) < 1536:
-        # Add hash-based features
-        import hashlib
         for i in range(1536 - len(vector)):
             char_val = ord(text_lower[i % len(text_lower)]) if text_lower else 0
             vector.append(float(char_val) / 255.0)
@@ -369,65 +342,47 @@ def get_tfidf_embedding(text):
 def generate_embedding(text, ai_tool='openai'):
     """
     Generate embedding vector based on selected AI tool:
-    - 'openai' -> OpenAI API (cloud)
-    - 'deepseek' -> Local model (DeepSeek has no embedding API)
-    - 'rtk'/'local' -> Local sentence-transformers (free, offline)
+    - 'openai' -> OpenAI Embedding API
+    - 'rtk' or 'deepseek' -> RTK Embedding API (both use RTK's embedding-chattek-qwen)
     """
     text = text.replace("\n", " ")
     if not text or not text.strip():
         return [0.0] * 1536
 
-    # OpenAI: use cloud API
-    if ai_tool == 'openai':
-        if not SYSTEM_OPENAI_KEY:
-            print("[Embedding] WARNING: OpenAI key not configured, falling back to local/other")
-            # Fallback to local or TF-IDF
-            model = get_local_embedding_model()
-            if model:
-                try:
-                    result = model.encode([text])[0].tolist()
-                    if len(result) < 1536:
-                        result = result + [0.0] * (1536 - len(result))
-                    print("[Embedding] Using local embedding (fallback)")
-                    return result
-                except:
-                    pass
+    # Use RTK embedding for rtk, deepseek, or any non-openai tool
+    if ai_tool != 'openai':
+        # RTK/DeepSeek: use RTK embedding API
+        if not RTK_LLM_API_KEY:
+            print("[Embedding] WARNING: RTK key not configured, using TF-IDF fallback")
             return get_tfidf_embedding(text)
-
         try:
-            client = openai.OpenAI(api_key=SYSTEM_OPENAI_KEY)
-            result = client.embeddings.create(input=[text], model="text-embedding-3-small")
-            print("[Embedding] Using OpenAI embedding (cloud)")
+            import httpx
+            http_client = httpx.Client(proxies=False, timeout=30.0)
+            client = openai.OpenAI(
+                base_url="https://devops.realtek.com/realgpt-api/openai-compatible/v1",
+                api_key=RTK_LLM_API_KEY,
+                http_client=http_client
+            )
+            result = client.embeddings.create(input=[text], model="embedding-chattek-qwen")
+            print(f"[Embedding] Using RTK embedding ({ai_tool})")
             return result.data[0].embedding
         except Exception as e:
-            print(f"[Embedding] OpenAI error: {e}")
-            # Fallback to local/TF-IDF
-            model = get_local_embedding_model()
-            if model:
-                try:
-                    result = model.encode([text])[0].tolist()
-                    if len(result) < 1536:
-                        result = result + [0.0] * (1536 - len(result))
-                    return result
-                except:
-                    pass
+            print(f"[Embedding] RTK error: {e}, using TF-IDF fallback")
             return get_tfidf_embedding(text)
 
-    # local/rtk/deepseek: try local model first, then TF-IDF fallback
-    model = get_local_embedding_model()
-    if model:
-        try:
-            result = model.encode([text])[0].tolist()
-            if len(result) < 1536:
-                result = result + [0.0] * (1536 - len(result))
-            print(f"[Embedding] Using local embedding ({ai_tool})")
-            return result
-        except Exception as e:
-            print(f"[Embedding] Local model error: {e}, using TF-IDF fallback")
+    # OpenAI: use OpenAI Embedding API
+    if not SYSTEM_OPENAI_KEY:
+        print("[Embedding] WARNING: OpenAI key not configured, using TF-IDF fallback")
+        return get_tfidf_embedding(text)
 
-    # Final fallback: TF-IDF based embedding
-    print(f"[Embedding] Using TF-IDF fallback ({ai_tool})")
-    return get_tfidf_embedding(text)
+    try:
+        client = openai.OpenAI(api_key=SYSTEM_OPENAI_KEY)
+        result = client.embeddings.create(input=[text], model="text-embedding-3-small")
+        print("[Embedding] Using OpenAI embedding")
+        return result.data[0].embedding
+    except Exception as e:
+        print(f"[Embedding] OpenAI error: {e}, using TF-IDF fallback")
+        return get_tfidf_embedding(text)
 
 def search_db(query_vector, exclude_key, top_k=5):
     """Search the vector database for similar issues."""
@@ -1331,4 +1286,4 @@ def extract_archive(archive_path, extract_to):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
