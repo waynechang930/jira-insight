@@ -425,7 +425,7 @@
                 const response = await fetch('/api/search', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ jira_id: jiraId, ai_tool: selectedAITool })
+                    body: JSON.stringify({ jira_id: jiraId, ai_tool: selectedSingleAITool })
                 });
 
                 const data = await response.json();
