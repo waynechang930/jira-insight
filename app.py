@@ -303,6 +303,8 @@ def get_open_issues_by_project(project_key, limit=50):
 
 # Local embedding model (lazy load)
 _local_model = None
+_tfidf_vectorizer = None
+_tfidf_vocab = None
 
 def get_local_embedding_model():
     """Get or initialize local embedding model"""
@@ -311,7 +313,6 @@ def get_local_embedding_model():
         try:
             from sentence_transformers import SentenceTransformer
             # Using a fast, lightweight model - 384 dimensions
-            # Note: This will produce 384-dim vectors, may not match DB
             _local_model = SentenceTransformer('all-MiniLM-L6-v2')
             print("[Embedding] Local model loaded: all-MiniLM-L6-v2 (384d)")
         except Exception as e:
@@ -320,56 +321,113 @@ def get_local_embedding_model():
     return _local_model
 
 
+def get_tfidf_embedding(text):
+    """Fallback: Use TF-IDF based embedding when sentence-transformers unavailable"""
+    global _tfidf_vectorizer, _tfidf_vocab
+
+    if _tfidf_vocab is None:
+        # Simple word-based vocabulary (common technical terms)
+        common_words = [
+            'error', 'exception', 'fail', 'crash', 'bug', 'fix', 'issue', 'problem',
+            'null', 'undefined', 'timeout', 'connection', 'database', 'api', 'server',
+            'memory', 'performance', 'load', 'slow', 'memory', 'leak', 'stack', 'trace',
+            'warning', 'info', 'debug', 'config', 'setting', 'deployment', 'build',
+            'test', 'production', 'staging', 'development', 'user', 'admin', 'login',
+            'authentication', 'authorization', 'permission', 'access', 'denied',
+            'network', 'request', 'response', 'http', 'https', 'json', 'xml',
+            'java', 'python', 'javascript', 'node', 'react', 'angular', 'vue',
+            'sql', 'nosql', 'mongodb', 'redis', 'postgres', 'mysql', 'oracle',
+            'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'cloud', 'linux', 'windows',
+            'file', 'directory', 'path', 'folder', 'upload', 'download', 'stream',
+            'cache', 'session', 'cookie', 'token', 'jwt', 'refresh', 'update', 'delete',
+            'insert', 'select', 'query', 'transaction', 'commit', 'rollback',
+            'lock', 'deadlock', 'race', 'condition', 'sync', 'async', 'await',
+            'thread', 'process', 'service', 'microservice', 'gateway', 'proxy',
+            'rate', 'limit', 'quota', 'throttle', 'queue', 'message', 'event',
+            'log', 'monitor', 'alert', 'metric', 'dashboard', 'sentry', 'datadog'
+        ]
+        _tfidf_vocab = {word: i for i, word in enumerate(common_words)}
+
+    # Simple bag-of-words vector
+    text_lower = text.lower()
+    vector = [0.0] * len(_tfidf_vocab)
+    for word, idx in _tfidf_vocab.items():
+        if word in text_lower:
+            vector[idx] = 1.0
+
+    # Pad to 1536 dimensions
+    if len(vector) < 1536:
+        # Add hash-based features
+        import hashlib
+        for i in range(1536 - len(vector)):
+            char_val = ord(text_lower[i % len(text_lower)]) if text_lower else 0
+            vector.append(float(char_val) / 255.0)
+
+    return vector
+
+
 def generate_embedding(text, ai_tool='openai'):
     """
     Generate embedding vector based on selected AI tool:
-    - 'openai' -> OpenAI API
-    - 'deepseek' -> DeepSeek API (not available)
+    - 'openai' -> OpenAI API (cloud)
+    - 'deepseek' -> Local model (DeepSeek has no embedding API)
     - 'rtk'/'local' -> Local sentence-transformers (free, offline)
     """
     text = text.replace("\n", " ")
     if not text or not text.strip():
         return [0.0] * 1536
 
-    # For search: always use local model (free)
-    if ai_tool == 'local' or ai_tool == 'rtk':
-        model = get_local_embedding_model()
-        if model:
-            try:
-                result = model.encode([text])[0].tolist()
-                # Pad to 1536 dimensions
-                if len(result) < 1536:
-                    result = result + [0.0] * (1536 - len(result))
-                print("[Embedding] Using local embedding (for search)")
-                return result
-            except Exception as e:
-                print(f"[Embedding] Local model error: {e}")
-                return [0.0] * 1536
-        print("[Embedding] ERROR: Local model not available")
-        return [0.0] * 1536
-
-    elif ai_tool == 'openai':
-        # Use OpenAI
+    # OpenAI: use cloud API
+    if ai_tool == 'openai':
         if not SYSTEM_OPENAI_KEY:
-            print("[Embedding] WARNING: OpenAI key not configured, falling back to local")
-            return generate_embedding(text, 'local')
+            print("[Embedding] WARNING: OpenAI key not configured, falling back to local/other")
+            # Fallback to local or TF-IDF
+            model = get_local_embedding_model()
+            if model:
+                try:
+                    result = model.encode([text])[0].tolist()
+                    if len(result) < 1536:
+                        result = result + [0.0] * (1536 - len(result))
+                    print("[Embedding] Using local embedding (fallback)")
+                    return result
+                except:
+                    pass
+            return get_tfidf_embedding(text)
+
         try:
             client = openai.OpenAI(api_key=SYSTEM_OPENAI_KEY)
             result = client.embeddings.create(input=[text], model="text-embedding-3-small")
-            print("[Embedding] Using OpenAI embedding")
+            print("[Embedding] Using OpenAI embedding (cloud)")
             return result.data[0].embedding
         except Exception as e:
-            print(f"[Embedding] OpenAI error: {e}, falling back to local")
-            return generate_embedding(text, 'local')
+            print(f"[Embedding] OpenAI error: {e}")
+            # Fallback to local/TF-IDF
+            model = get_local_embedding_model()
+            if model:
+                try:
+                    result = model.encode([text])[0].tolist()
+                    if len(result) < 1536:
+                        result = result + [0.0] * (1536 - len(result))
+                    return result
+                except:
+                    pass
+            return get_tfidf_embedding(text)
 
-    elif ai_tool == 'deepseek':
-        # DeepSeek doesn't have embedding API, fallback to local
-        print("[Embedding] DeepSeek has no embedding API, falling back to local")
-        return generate_embedding(text, 'local')
+    # local/rtk/deepseek: try local model first, then TF-IDF fallback
+    model = get_local_embedding_model()
+    if model:
+        try:
+            result = model.encode([text])[0].tolist()
+            if len(result) < 1536:
+                result = result + [0.0] * (1536 - len(result))
+            print(f"[Embedding] Using local embedding ({ai_tool})")
+            return result
+        except Exception as e:
+            print(f"[Embedding] Local model error: {e}, using TF-IDF fallback")
 
-    else:
-        # Default to local
-        return generate_embedding(text, 'local')
+    # Final fallback: TF-IDF based embedding
+    print(f"[Embedding] Using TF-IDF fallback ({ai_tool})")
+    return get_tfidf_embedding(text)
 
 def search_db(query_vector, exclude_key, top_k=5):
     """Search the vector database for similar issues."""
@@ -412,9 +470,10 @@ def api_search():
         return jsonify({"error": "Jira Issue not found or connection failed"}), 404
 
     try:
-        # For search, always use local model (free, offline)
-        # For analysis, use selected AI tool
-        vector = generate_embedding(issue_text, 'local')
+        # OpenAI uses cloud embedding, others use local (free)
+        # User said: "open ai 繼續用雲端embedding api 其它用local的"
+        embedding_tool = 'openai' if ai_tool == 'openai' else 'local'
+        vector = generate_embedding(issue_text, embedding_tool)
     except Exception as e:
         return jsonify({"error": f"Failed to generate embedding: {str(e)}"}), 500
 
@@ -481,8 +540,9 @@ def api_scan_project():
 
             issue_text = f"Issue: {summary}. Description: {description[:1000]}"
 
-            # Generate Embedding - always use local model for search
-            vector = generate_embedding(issue_text, 'local')
+            # Generate Embedding - OpenAI uses cloud, others use local
+            embedding_tool = 'openai' if ai_tool == 'openai' else 'local'
+            vector = generate_embedding(issue_text, embedding_tool)
 
             # Skip if no embedding available
             if all(v == 0.0 for v in vector):

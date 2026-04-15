@@ -122,6 +122,15 @@
                             <input type="text" class="form-control" id="projectKey" placeholder="e.g., RKTC2865PU">
                             <div class="form-text">Scans unresolved issues for matches (Score >= 80%).</div>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Embedding Model</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="scanEmbedding" id="scanEmbedOpenAI" autocomplete="off" checked>
+                                <label class="btn btn-outline-primary btn-sm" for="scanEmbedOpenAI">OpenAI (Cloud)</label>
+                                <input type="radio" class="btn-check" name="scanEmbedding" id="scanEmbedLocal" autocomplete="off">
+                                <label class="btn btn-outline-primary btn-sm" for="scanEmbedLocal">Local (Free)</label>
+                            </div>
+                        </div>
                         <div class="d-grid gap-2">
                             <button class="btn btn-scan" onclick="runProjectScan()">
                                 <i class="fa-solid fa-radar me-2"></i> Scan Project
@@ -473,6 +482,10 @@
             const projectKey = document.getElementById('projectKey').value.trim();
             if (!projectKey) return alert('Please enter a Project Key');
 
+            // Get embedding model: openai (cloud) or local
+            const useOpenAI = document.getElementById('scanEmbedOpenAI').checked;
+            const aiTool = useOpenAI ? 'openai' : 'local';
+
             resetUI();
             showLoading(`Scanning unresolved issues in ${projectKey}... this may take a while.`);
 
@@ -480,7 +493,7 @@
                 const response = await fetch('/api/scan_project', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ project_key: projectKey, ai_tool: selectedAITool })
+                    body: JSON.stringify({ project_key: projectKey, ai_tool: aiTool })
                 });
 
                 const data = await response.json();
