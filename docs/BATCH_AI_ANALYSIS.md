@@ -204,13 +204,22 @@ python app.py
 1. **Single Issue Analysis** - 單一問題分析
 2. **Batch AI Analysis** - 批次 AI 分析
 3. **Project Scan** - 專案掃描
+   - 獨立選擇 Embedding 模型：OpenAI (雲端) 或 Local (免費)
+   - 掃描專案中所有未解決的問題
+   - 與歷史資料庫比對，找出相似度 ≥80% 的歷史問題
 
 ### 3.2 Batch AI Analysis 操作流程
 
 #### Step 1: 選擇 AI 工具與語言
 
-- **AI Tool**: OpenAI / RTK LLM / DeepSeek
+- **AI Tool**: OpenAI / RTK LLM / DeepSeek (用於 AI 分析)
 - **Output Language**: English / 繁體中文
+
+> **注意**：Embedding（向量搜尋）與 AI 分析使用不同的模型：
+> - **AI 分析**：使用選定的 AI 工具 (OpenAI/RTK/DeepSeek) 進行複雜的根因分析
+> - **向量搜尋**：
+>   - OpenAI → 雲端 Embedding API
+>   - RTK/DeepSeek/Local → 本地模型 (sentence-transformers) 或 TF-IDF fallback
 
 #### Step 2: 輸入查詢條件
 
@@ -352,8 +361,8 @@ AI 分析報告包含：
 - 顯示 ±20 行上下文
 - 修正 Jira Wiki Markup 語法
 
-### v1.2.0 (2026-04-14)
-**Commit**: (最新)
+### v1.2.0 (2026-04-15)
+**Commit**: `b8c8397` - Fix: use correct embedding model based on AI tool selection
 
 新增功能：
 - 附件日期排序與篩選
@@ -362,6 +371,10 @@ AI 分析報告包含：
 - Token 數量檢查（196608上限）
 - 顯示可讀的 Markdown 格式結果
 - 已分析檔案標註綠色
+- **分離 Embedding 與 AI 分析模型**：
+  - AI 分析：使用選定的 AI 工具
+  - 向量搜尋：OpenAI 用雲端 API，其他用本地模型/TF-IDF fallback
+- Project Scan 新增 Embedding 模型選擇器 (OpenAI 雲端 / Local 免費)
 
 ---
 
