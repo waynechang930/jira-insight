@@ -74,6 +74,12 @@ source venv/bin/activate  # Linux/Mac
 # 3. 安裝依賴
 pip install -r requirements.txt
 
+# 3.1 安裝本地 Embedding 模型 (可選，免費離線向量搜尋)
+# CPU-only 版本 (~200MB)，如需 GPU 加速可略過此步驟
+source venv/bin/activate
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install sentence-transformers
+
 # 4. 設定環境變數
 cp .env.example .env
 # 編輯 .env 填入你的設定 (特別是 JIRA_COOKIE)
@@ -332,7 +338,42 @@ AI 分析報告包含：
 
 ---
 
-## 7. 技術架構
+## 7. Embedding 模型比較
+
+### 7.1 安裝選項
+
+| 安裝方式 | 大小 | 說明 |
+|----------|------|------|
+| CPU-only (推薦) | ~200MB | 使用 PyTorch CPU 版本，適用於無 GPU 的環境 |
+| GPU 加速 | ~3GB+ | 需要 NVIDIA GPU + CUDA，運算速度較快 |
+
+**安裝指令：**
+```bash
+# CPU-only (推薦)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install sentence-transformers
+
+# GPU 版本 (需要 NVIDIA GPU)
+pip install torch
+pip install sentence-transformers
+```
+
+### 7.2 效能比較
+
+| 模型 | 維度 | 搜尋速度 (100 issues) | 準確率 |
+|------|------|----------------------|--------|
+| OpenAI (雲端) | 1536 | 快 (API) | 高 |
+| sentence-transformers (CPU) | 384 | 中等 | 中 |
+| TF-IDF fallback | 1536 | 快 | 低 (<10%) |
+
+**說明：**
+- 本地模型 (sentence-transformers) 產生的向量維度與 OpenAI 不同 (384 vs 1536)，透過 padding 處理
+- TF-IDF 為 fallback 方案，僅適用於簡單關鍵字匹配，相似度通常 <10%
+- 如需更高準確率，建議使用 OpenAI 雲端 Embedding API
+
+---
+
+## 8. 技術架構
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -375,6 +416,14 @@ AI 分析報告包含：
   - AI 分析：使用選定的 AI 工具
   - 向量搜尋：OpenAI 用雲端 API，其他用本地模型/TF-IDF fallback
 - Project Scan 新增 Embedding 模型選擇器 (OpenAI 雲端 / Local 免費)
+
+### v1.2.1 (2026-04-15)
+**Commit**: (最新)
+
+新增功能：
+- 本地 Embedding 模型正式支援 (sentence-transformers)
+- 提供 CPU-only 安裝選項 (~200MB)，無需 GPU
+- 文件加入本地模型安裝指南與效能比較
 
 ---
 
