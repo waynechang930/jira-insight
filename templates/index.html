@@ -246,6 +246,7 @@
                                 <select class="form-select" id="filterType" onchange="toggleFilterType()">
                                     <option value="filter">Saved Filter ID</option>
                                     <option value="jql">JQL Query</option>
+                                    <option value="key">Jira Key</option>
                                 </select>
                             </div>
                             <div class="mb-3" id="filterIdInput">
@@ -256,6 +257,11 @@
                             <div class="mb-3" id="jqlInput" style="display:none;">
                                 <label for="batchJql" class="form-label">JQL Query</label>
                                 <input type="text" class="form-control" id="batchJql" placeholder="project = ABC AND status = Open">
+                            </div>
+                            <div class="mb-3" id="keyInput" style="display:none;">
+                                <label for="batchIssueKey" class="form-label">Jira Key</label>
+                                <input type="text" class="form-control" id="batchIssueKey" placeholder="e.g., RK51FAN14-1522">
+                                <div class="form-text">Enter a single Jira issue key</div>
                             </div>
                             <div class="d-grid gap-2">
                                 <button class="btn btn-compare" onclick="loadIssues()">
@@ -631,15 +637,18 @@
             const type = document.getElementById('filterType').value;
             document.getElementById('filterIdInput').style.display = type === 'filter' ? 'block' : 'none';
             document.getElementById('jqlInput').style.display = type === 'jql' ? 'block' : 'none';
+            document.getElementById('keyInput').style.display = type === 'key' ? 'block' : 'none';
         }
 
         async function loadIssues() {
             const type = document.getElementById('filterType').value;
             const filterId = document.getElementById('batchFilterId').value.trim();
             const jql = document.getElementById('batchJql').value.trim();
+            const issueKey = document.getElementById('batchIssueKey').value.trim();
 
             if (type === 'filter' && !filterId) return alert('Please enter Filter ID');
             if (type === 'jql' && !jql) return alert('Please enter JQL Query');
+            if (type === 'key' && !issueKey) return alert('Please enter Jira Key');
 
             showLoading('Loading issues from Jira...');
 
@@ -650,7 +659,8 @@
                     body: JSON.stringify({
                         type: type,
                         filter_id: filterId,
-                        jql: jql
+                        jql: jql,
+                        issue_key: issueKey
                     })
                 });
 

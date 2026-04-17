@@ -589,20 +589,25 @@ def api_analyze():
 
 @app.route('/api/batch_load_issues', methods=['POST'])
 def api_batch_load_issues():
-    """Load issues from Jira Filter or JQL"""
+    """Load issues from Jira Filter, JQL, or single Jira Key"""
     data = request.json
-    issue_type = data.get('type')  # 'filter' or 'jql'
+    issue_type = data.get('type')  # 'filter', 'jql', or 'key'
     filter_id = data.get('filter_id')
     jql = data.get('jql')
+    issue_key = data.get('issue_key')
 
     if issue_type == 'filter' and not filter_id:
         return jsonify({"error": "Filter ID is required"}), 400
     if issue_type == 'jql' and not jql:
         return jsonify({"error": "JQL is required"}), 400
+    if issue_type == 'key' and not issue_key:
+        return jsonify({"error": "Jira Key is required"}), 400
 
     # Build JQL
     if issue_type == 'filter':
         search_jql = f"filter={filter_id}"
+    elif issue_type == 'key':
+        search_jql = f"key={issue_key}"
     else:
         search_jql = jql
 
