@@ -16,7 +16,7 @@
 - **自動化**：自動下載附件、解析壓縮檔、提取關鍵日誌
 - **多 AI 支援**：支援 OpenAI、RTK LLM、DeepSeek 三種 AI 引擎
 - **預覽後更新**：先預覽 AI 分析結果，確認後再寫入 Jira
-- **靈活輸入**：支援 Saved Filter ID 或 JQL 查詢
+- **靈活輸入**：支援 Saved Filter ID、JQL 查詢或單一 Jira Key
 - **多模組掃描**：掃描 54+ 個錯誤模組，自動匹配根因規則 (需額外下載)
 
 ### 1.3 準確度說明
@@ -228,6 +228,7 @@ python app.py
 選擇輸入類型：
 - **Saved Filter ID**: 輸入 Jira Filter ID (如 18907)
 - **JQL Query**: 輸入自訂 JQL 條件
+- **Jira Key**: 輸入單一 Jira 問題編號 (如 RK51FAN14-1522)
 
 #### Step 3: 載入問題
 
@@ -403,6 +404,13 @@ AI 分析報告包含：
 - RTK Embedding 自動維度截斷 (2560→1536) 匹配資料庫
 - 移除 sentence-transformers 依賴（改用 RTK API）
 - Project Scan 使用正確的 Embedding 模型（從 Single Issue Analysis 選擇）
+
+### v1.2.2 (2026-04-17)
+**Commit**: `2338cdf`
+
+新增功能：
+- 新增單一 Jira Key 輸入功能，可直接輸入問題編號進行分析（如 RK51FAN14-1522）
+- Input Type 下拉選單增加「Jira Key」選項
 
 ---
 
