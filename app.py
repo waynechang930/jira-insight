@@ -38,6 +38,7 @@ SYSTEM_OPENAI_KEY = os.getenv("OPENAI_API_KEY")
 RTK_LLM_API_KEY = os.getenv("RTK_LLM_API_KEY")
 DEEPSEEK_LLM_API_KEY = os.getenv("DEEPSEEK_LLM_API_KEY")
 USE_RTK_LLM = os.getenv("USE_RTK_LLM", "N").upper()
+SHOW_KEYWORD_COMPARE_STATUS = os.getenv("SHOW_KEYWORD_COMPARE_STATUS", "N").upper() == "Y"
 
 # Jira Basic Auth (for API calls - more reliable than Bearer token)
 JIRA_USER = os.getenv("JIRA_USER", "")
@@ -150,8 +151,18 @@ def scan_log_with_patterns(content, patterns, context_lines=20):
     """
     matches = []
     lines = content.split('\n')
+    total_rules = len(patterns)
+    last_source_file = None
 
-    for rule in patterns:
+    for idx, rule in enumerate(patterns):
+        # Show progress every 100 rules, including current file name
+        source_file = rule.get('_source_file', 'Unknown')
+        if SHOW_KEYWORD_COMPARE_STATUS and (idx + 1) % 100 == 0:
+            print(f"[PatternMatch] Progress: {idx + 1}/{total_rules} rules processed... (current: {source_file}.json)")
+        if SHOW_KEYWORD_COMPARE_STATUS and source_file != last_source_file:
+            print(f"[PatternMatch] Now processing: {source_file}.json")
+            last_source_file = source_file
+
         keywords = rule.get('Keywords', '')
         if not keywords:
             continue
@@ -180,8 +191,17 @@ def scan_log_with_patterns(content, patterns, context_lines=20):
                     'line_number': line_num
                 })
 
+                # Log matched pattern
+                if SHOW_KEYWORD_COMPARE_STATUS:
+                    matched_keywords = rule.get('Keywords', '')
+                    source = rule.get('_source_file', 'Unknown')
+                    print(f"[PatternMatch] ✓ MATCH: \"{matched_keywords}\" in {source}.json (line {line_num})")
+
                 # Only report first match per rule to avoid duplicates
                 break
+
+    if SHOW_KEYWORD_COMPARE_STATUS:
+        print(f"[PatternMatch] Completed: {len(matches)} matches found from {total_rules} rules")
 
     return matches
 
@@ -708,9 +728,14 @@ def api_batch_analyze():
     ai_tool = data.get('ai_tool', 'openai')  # openai, rtk, deepseek
     output_language = data.get('output_language', 'en')  # en or zh
     selected_dates = data.get('selected_dates', None)  # List of dates to analyze
+    max_file_size_mb = data.get('max_file_size_mb', 50)  # Max file size in MB to process (default 50MB)
 
     if not issue_key:
         return jsonify({"error": "Issue key is required"}), 400
+
+    # Show file size limit if set
+    if SHOW_KEYWORD_COMPARE_STATUS and max_file_size_mb:
+        print(f"[PatternMatch] File size limit: {max_file_size_mb} MB")
 
     # Get issue details
     issue_text, _ = get_jira_content(issue_key)
@@ -730,9 +755,29 @@ def api_batch_analyze():
     if attachment_texts and error_patterns:
         attachment_content = "\n\n=== ATTACHMENT ANALYSIS (Error Pattern Matching) ===\n"
 
+        # Filter attachments by size if limit is set
+        filtered_attachments = []
+        skipped_files = []
         for att_name, att_text in attachment_texts:
+            file_size_mb = len(att_text) / (1024 * 1024)
+            if max_file_size_mb and file_size_mb > max_file_size_mb:
+                skipped_files.append((att_name, file_size_mb))
+                continue
+            filtered_attachments.append((att_name, att_text))
+
+        if SHOW_KEYWORD_COMPARE_STATUS and skipped_files:
+            print(f"[PatternMatch] Skipped {len(skipped_files)} files exceeding size limit:")
+            for name, size in skipped_files:
+                print(f"  - {name} ({size:.2f} MB)")
+
+        for att_name, att_text in filtered_attachments:
+            # Show file being processed
+            if SHOW_KEYWORD_COMPARE_STATUS:
+                file_size_mb = len(att_text) / (1024 * 1024)
+                print(f"[PatternMatch] Processing: {att_name} ({file_size_mb:.2f} MB, {len(att_text.split(chr(10)))} lines)")
+
             # Scan log against all error patterns
-            matches = scan_log_with_patterns(att_text, error_patterns, context_lines=20)
+            matches = scan_log_with_patterns(att_text, error_patterns, context_lines=5)  # Reduced from 20 to save tokens
 
             if matches:
                 attachment_content += f"\n--- File: {att_name} ---\n"
@@ -814,7 +859,23 @@ def api_batch_analyze():
 2. Key Error Logs (extract important log snippets WITH file source)
 3. Suggested Fix (step-by-step solution)
 
-IMPORTANT: When analyzing logs, include the FILE SOURCE and LINE NUMBER if available.
+IMPORTANT:
+- When analyzing logs, include the FILE SOURCE and LINE NUMBER if available.
+- MUST reference the "PATTERN MATCH SUMMARY" section if present - these are pre-detected error patterns from our knowledge base.
+- Use the matched patterns to identify the root cause.
+
+CRITICAL - If pattern matches are found:
+- Provide a confidence value based on how well the matched patterns explain the issue.
+- Confidence format: Use percentage like "50%", "60%", "70%", "80%", "90%", "100%"
+- Higher confidence = patterns strongly match the issue symptoms.
+
+SUMMARY FORMAT - If pattern matches are found, use this table format:
+| Category | Details |
+| _Root Cause_ | [Your root cause analysis] |
+| _Impact_ | [What systems/users are affected] |
+| _Priority_ | [P1/P2/P3/P4 based on severity] |
+| _Owner_ | [Suggested team or role] |
+| _Suggested Team_ | [Realtek team: Android Framework/Media/Network/Kernel/Graphics/etc.] |
 
 Issue Details:
 {issue_text}
@@ -825,12 +886,52 @@ Issue Details:
 Format your response clearly with headers."""
 
     # Check token count before calling AI
-    MAX_TOKENS = 196608
+    MAX_TOKENS = 25000  # Keep under 30k TPM limit
     estimated_tokens = count_tokens(analysis_prompt)
     token_warning = None
 
+    # Truncate attachment content if too large
     if estimated_tokens > MAX_TOKENS:
-        token_warning = f"Warning: Estimated token count ({estimated_tokens:,}) exceeds limit ({MAX_TOKENS:,}). Please select fewer dates or reduce attachment size."
+        # Find the attachment content section
+        if "ATTACHMENT ANALYSIS" in attachment_content:
+            # Keep only first 3000 chars of attachment content
+            attach_start = attachment_content.find("ATTACHMENT ANALYSIS")
+            if attach_start != -1:
+                attachment_content = attachment_content[:attach_start + 3000] + "\n\n[Content truncated due to size...]"
+                # Rebuild prompt
+                analysis_prompt = f"""You are a Senior Technical Support Analyst. Analyze this Jira issue and provide:
+
+1. Root Cause Analysis (root cause of the issue)
+2. Key Error Logs (extract important log snippets WITH file source)
+3. Suggested Fix (step-by-step solution)
+
+IMPORTANT:
+- When analyzing logs, include the FILE SOURCE and LINE NUMBER if available.
+- MUST reference the "PATTERN MATCH SUMMARY" section if present - these are pre-detected error patterns from our knowledge base.
+- Use the matched patterns to identify the root cause.
+
+CRITICAL - If pattern matches are found:
+- Provide a confidence value based on how well the matched patterns explain the issue.
+- Confidence format: Use percentage like "50%", "60%", "70%", "80%", "90%", "100%"
+- Higher confidence = patterns strongly match the issue symptoms.
+
+SUMMARY FORMAT - If pattern matches are found, use this table format:
+| Category | Details |
+| _Root Cause_ | [Your root cause analysis] |
+| _Impact_ | [What systems/users are affected] |
+| _Priority_ | [P1/P2/P3/P4 based on severity] |
+| _Owner_ | [Suggested team or role] |
+| _Suggested Team_ | [Realtek team: Android Framework/Media/Network/Kernel/Graphics/etc.] |
+
+Issue Details:
+{issue_text}
+{attachment_content}
+
+{lang_instruction}
+
+Format your response clearly with headers."""
+                estimated_tokens = count_tokens(analysis_prompt)
+                token_warning = f"Warning: Content was truncated due to size. Estimated tokens: {estimated_tokens:,}"
 
     # Call AI
     try:

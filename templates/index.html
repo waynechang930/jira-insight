@@ -229,6 +229,16 @@
                                 <option value="zh-CN">简体中文</option>
                                 <option value="zh-TW">繁體中文</option>
                             </select>
+                            <hr>
+                            <h5 class="card-title mb-2"><i class="fa-solid fa-file me-2"></i> Max File Size</h5>
+                            <select class="form-select" id="maxFileSize">
+                                <option value="">No limit</option>
+                                <option value="10">10 MB</option>
+                                <option value="50" selected>50 MB</option>
+                                <option value="100">100 MB</option>
+                                <option value="200">200 MB</option>
+                                <option value="500">500 MB</option>
+                            </select>
                         </div>
                     </div>
 
@@ -1082,6 +1092,7 @@
         async function analyzeIssue(index) {
             const issue = batchIssues[index];
             const outputLang = document.getElementById('outputLanguage').value;
+            const maxFileSize = document.getElementById('maxFileSize').value;
             issue.processing = true;
 
             // Save checkbox states before re-render
@@ -1096,7 +1107,8 @@
                         issue_key: issue.key,
                         ai_tool: selectedAITool,
                         output_language: outputLang,
-                        selected_dates: issue.selected_dates || null
+                        selected_dates: issue.selected_dates || null,
+                        max_file_size_mb: maxFileSize ? parseInt(maxFileSize) : null
                     })
                 });
 

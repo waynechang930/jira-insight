@@ -110,6 +110,7 @@ USE_RTK_LLM=Y
 OPENAI_API_KEY=sk-xxxxx
 RTK_LLM_API_KEY=your_rtk_key
 DEEPSEEK_LLM_API_KEY=sk-xxxxx
+SHOW_KEYWORD_COMPARE_STATUS=Y  # 顯示錯誤模式比對進度
 ```
 
 ### 2.4 Jira Cloud 2FA 認證設定
@@ -216,6 +217,7 @@ python app.py
 
 - **AI Tool**: OpenAI / RTK LLM / DeepSeek (用於 AI 分析)
 - **Output Language**: English / 繁體中文
+- **Max File Size**: 篩選過大的附件（預設 50MB，可選 10/100/200/500MB 或無限制）
 
 > **注意**：Embedding（向量搜尋）與 AI 分析使用不同的模型：
 > - **AI 分析**：使用選定的 AI 工具 (OpenAI/RTK/DeepSeek) 進行複雜的根因分析
@@ -411,6 +413,16 @@ AI 分析報告包含：
 新增功能：
 - 新增單一 Jira Key 輸入功能，可直接輸入問題編號進行分析（如 RK51FAN14-1522）
 - Input Type 下拉選單增加「Jira Key」選項
+
+### v1.2.3 (2026-04-20)
+**Commit**: (最新)
+
+新增功能：
+- 錯誤模式比對進度顯示 (`SHOW_KEYWORD_COMPARE_STATUS` 環境變數)
+- 檔案大小限制篩選器（預設 50MB，可選擇 10/100/200/500MB 或無限制）
+- 自動 Token 截斷（維持 25k 上限，避免超過 30k TPM 限制）
+- AI 分析結果增加信心指數（50%, 60%, 70%... 等百分比）
+- AI 分析結果增加結構化摘要表格（Root Cause / Impact / Priority / Owner / Suggested Team）
 
 ---
 
