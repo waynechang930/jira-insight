@@ -14,6 +14,7 @@ import re
 import shutil
 import base64
 import time
+from datetime import datetime
 from requests.auth import HTTPBasicAuth
 from urllib.parse import urlparse
 
@@ -206,9 +207,13 @@ def scan_log_with_patterns(content, patterns, context_lines=20):
     return matches
 
 # AI Analysis Prompt (English)
+CURRENT_DATE = datetime.now().strftime('%Y-%m-%d')
+
 AI_ANALYSIS_PROMPT = """
 # Role Definition
 You are a Senior Technical Support Analyst and Expert Debugger. Your goal is to analyze a new issue reported by a customer and provide a solution based on similar historical resolved cases from the Jira system.
+
+CURRENT DATE: {current_date} (Use this date in your report header, NOT any other date)
 
 # Context
 We have retrieved relevant historical Jira tickets that are semantically similar to the new issue. You must use these historical records to diagnose the new issue.
@@ -594,7 +599,8 @@ def api_analyze():
         ai_result = call_ai_with_tool(
             AI_ANALYSIS_PROMPT.format(
                 new_issue_content=issue_text,
-                retrieved_chunks=retrieved_chunks
+                retrieved_chunks=retrieved_chunks,
+                current_date=CURRENT_DATE
             ),
             ai_tool
         )
@@ -859,6 +865,8 @@ def api_batch_analyze():
 2. Key Error Logs (extract important log snippets WITH file source)
 3. Suggested Fix (step-by-step solution)
 
+CURRENT DATE: {CURRENT_DATE} (Use this date in your report header, NOT any other date)
+
 IMPORTANT:
 - When analyzing logs, include the FILE SOURCE and LINE NUMBER if available.
 - MUST reference the "PATTERN MATCH SUMMARY" section if present - these are pre-detected error patterns from our knowledge base.
@@ -882,6 +890,11 @@ Issue Details:
 {attachment_content}
 
 {lang_instruction}
+
+REPORT FORMAT:
+- Start with "AI Analysis Report" as the title
+- Do NOT include "分析師" or "Analyst" - just provide the analysis
+- End with "—\n由 Jira Insight AI 分析產生"
 
 Format your response clearly with headers."""
 
@@ -905,6 +918,8 @@ Format your response clearly with headers."""
 2. Key Error Logs (extract important log snippets WITH file source)
 3. Suggested Fix (step-by-step solution)
 
+CURRENT DATE: {CURRENT_DATE} (Use this date in your report header, NOT any other date)
+
 IMPORTANT:
 - When analyzing logs, include the FILE SOURCE and LINE NUMBER if available.
 - MUST reference the "PATTERN MATCH SUMMARY" section if present - these are pre-detected error patterns from our knowledge base.
@@ -928,6 +943,11 @@ Issue Details:
 {attachment_content}
 
 {lang_instruction}
+
+REPORT FORMAT:
+- Start with "AI Analysis Report" as the title
+- Do NOT include "分析師" or "Analyst" - just provide the analysis
+- End with "—\n由 Jira Insight AI 分析產生"
 
 Format your response clearly with headers."""
                 estimated_tokens = count_tokens(analysis_prompt)
@@ -986,7 +1006,7 @@ def api_update_jira_comment():
 
     # Format comment (without "AI Analysis Report" header)
     comment_body = {
-        "body": jira_format + "\n\n---\n_由 Jira Insight AI 分析產生_"
+        "body": jira_format + "\n\n---\n由 Jira Insight AI 分析產生"
     }
 
     try:
