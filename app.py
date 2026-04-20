@@ -894,7 +894,7 @@ Issue Details:
 REPORT FORMAT:
 - Start with "AI Analysis Report" as the title
 - Do NOT include "分析師" or "Analyst" - just provide the analysis
-- End with "—\n由 Jira Insight AI 分析產生"
+- Do NOT add any footer or signature at the end
 
 Format your response clearly with headers."""
 
@@ -947,7 +947,7 @@ Issue Details:
 REPORT FORMAT:
 - Start with "AI Analysis Report" as the title
 - Do NOT include "分析師" or "Analyst" - just provide the analysis
-- End with "—\n由 Jira Insight AI 分析產生"
+- Do NOT add any footer or signature at the end
 
 Format your response clearly with headers."""
                 estimated_tokens = count_tokens(analysis_prompt)
