@@ -1095,15 +1095,31 @@ def call_ai_with_tool(prompt, tool='openai'):
         client = openai.OpenAI(api_key=SYSTEM_OPENAI_KEY)
         model = "gpt-4o"
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "You are a senior technical support analyst."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3
-    )
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a senior technical support analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            timeout=120.0
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        if tool == 'rtk' and model == 'expert':
+            print(f"[AI] RTK expert model timeout ({e}), retrying with fast model...")
+            response = client.chat.completions.create(
+                model="fast",
+                messages=[
+                    {"role": "system", "content": "You are a senior technical support analyst."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                timeout=120.0
+            )
+            return response.choices[0].message.content
+        raise
 
 
 def get_attachments_info(issue_key):
