@@ -39,10 +39,12 @@
 | 功能 | 說明 |
 |------|------|
 | 問題載入 | 從 Jira Filter 或 JQL 批量載入問題 |
-| 附件分析 | 自動下載 .txt, .log, .zip, .tar, .tgz 等檔案 |
+| 附件分析 | 自動下載 .txt, .log, .zip, .tar, .tgz 等檔案，保留資料夾結構 |
 | AI 分析 | 支援三種 AI 工具，產出根因分析報告 |
-| 結果預覽 | 在 UI 展開查看完整分析內容 |
+| 結果預覽 | 在 UI 展開查看完整分析內容，支援全頁檢視 |
 | 批量更新 | 勾選後批量寫入 Jira Comment |
+| 模式篩選 | 可限定只比對 Android_TV_General.json 規則 |
+| 分析優先級 | logcat/bugreport 為主，rtd_xx log 為輔，同資料夾文件相關聯 |
 
 ---
 
@@ -241,7 +243,12 @@ python app.py
 - **Filter by Status**: 全部 / 已分析 / 未分析 / 已更新 / 未更新
 - **Sort by**: 建立日期 (新→舊) / 建立日期 (舊→新) / Jira ID
 
-#### Step 5: 分析問題
+#### Step 5: 設定分析選項
+
+- **只比對 Android_TV_General.json**: 勾選後限定只使用 Android_TV_General.json 中的規則進行錯誤模式匹配
+- **AI 分析優先級**: logcat/bugreport 為主、rtd_xx log 為輔、同資料夾文件視為相關聯
+
+#### Step 6: 分析問題
 
 - **個別分析**: 點擊每個問題右側的「分析」按鈕
 - **批量分析**: 點擊「Analyze All」分析全部問題
@@ -249,9 +256,17 @@ python app.py
 系統會自動：
 1. 取得 Jira 問題內容
 2. 下載所有附件
-3. 解析壓縮檔 (.zip, .tar, .tgz, .gz)
+3. 解析壓縮檔 (.zip, .tar, .tgz, .gz)，保留資料夾結構
 4. 提取關鍵日誌 (Error, Warning, Exception)
-5. 呼叫 AI 分析並產出報告
+5. 比對錯誤模式（支援 54+ 模組的 2600+ 規則）
+6. 呼叫 AI 分析並產出報告
+
+#### Step 7: 展開結果
+
+點擊「展開」或「全頁檢視」按鈕查看完整的 AI 分析內容。
+Pattern Match Summary 表格格式：Index | Pattern | Priority | Owner | Source File | Matched Content | Relevance
+
+#### Step 8: 更新到 Jira
 
 #### Step 6: 展開結果
 
@@ -261,7 +276,7 @@ python app.py
 
 1. 勾選要更新的問題 (或使用「Select All」)
 2. 點擊「Update Selected」
-3. 系統會將分析結果以 Jira Wiki 格式寫入每個問題的 Comment
+3. 系統會將分析結果（含 Pattern Match Summary 表格與 AI 分析報告）以 Jira Wiki 格式寫入每個問題的 Comment
 
 ---
 
@@ -276,6 +291,9 @@ python app.py
 **智慧日誌提取**:
 系統會自動過濾出包含以下關鍵字的日誌行：
 - `error`, `exception`, `fail`, `warning`, `crash`, `stack`
+
+**資料夾結構保留**:
+壓縮檔解壓後的檔案會保留原始資料夾路徑（如 `folder1/folder2/file.txt`），而非僅使用檔名。同一資料夾內的檔案視為相關聯，避免跨資料夾拼湊分析。
 
 ### 4.2 AI 分析輸出格式
 
@@ -415,7 +433,7 @@ AI 分析報告包含：
 - Input Type 下拉選單增加「Jira Key」選項
 
 ### v1.2.3 (2026-04-20)
-**Commit**: (最新)
+**Commit**: `1a5decd`
 
 新增功能：
 - 錯誤模式比對進度顯示 (`SHOW_KEYWORD_COMPARE_STATUS` 環境變數)
@@ -423,6 +441,18 @@ AI 分析報告包含：
 - 自動 Token 截斷（維持 25k 上限，避免超過 30k TPM 限制）
 - AI 分析結果增加信心指數（50%, 60%, 70%... 等百分比）
 - AI 分析結果增加結構化摘要表格（Root Cause / Impact / Priority / Owner / Suggested Team）
+
+### v1.2.4 (2026-04-21)
+**Commit**: `342da83` - feat: improve analysis approach, pattern match table, and file folder tracking
+
+新增功能：
+- 分析優先級指令：logcat/bugreport 為主、rtd_xx log 為輔、同資料夾文件相關聯
+- Pattern Match Summary 表格格式更新（7 欄：Index | Pattern | Priority | Owner | Source File | Matched Content | Relevance）
+- 詳細模式資訊顯示：Keywords, Owner, Source, Comment, Log File, Matched Content
+- 「只比對 Android_TV_General.json」勾選框：限定只使用 Android_TV_General.json 規則
+- 壓縮檔保留資料夾結構（相對路徑追蹤）
+- AI 報告 SUMMARY FORMAT 增加 Pattern Match Summary Table 要求
+- 分析優先級（Relevance）：P1=高, P2=中, P3/P4=低
 
 ---
 
