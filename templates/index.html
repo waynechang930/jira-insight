@@ -239,6 +239,13 @@
                                 <option value="200">200 MB</option>
                                 <option value="500">500 MB</option>
                             </select>
+                            <hr>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="matchAndroidOnly">
+                                <label class="form-check-label" for="matchAndroidOnly">
+                                    <i class="fa-solid fa-robot me-1"></i>只比對 Android_TV_General.json
+                                </label>
+                            </div>
                         </div>
                     </div>
 
@@ -1160,6 +1167,8 @@
             renderIssueList();
 
             try {
+                const matchAndroidOnly = document.getElementById('matchAndroidOnly').checked;
+
                 const response = await fetch('/api/batch_analyze', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1168,7 +1177,8 @@
                         ai_tool: selectedAITool,
                         output_language: outputLang,
                         selected_dates: issue.selected_dates || null,
-                        max_file_size_mb: maxFileSize ? parseInt(maxFileSize) : null
+                        max_file_size_mb: maxFileSize ? parseInt(maxFileSize) : null,
+                        match_android_only: matchAndroidOnly
                     })
                 });
 

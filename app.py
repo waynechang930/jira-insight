@@ -735,6 +735,7 @@ def api_batch_analyze():
     output_language = data.get('output_language', 'en')  # en or zh
     selected_dates = data.get('selected_dates', None)  # List of dates to analyze
     max_file_size_mb = data.get('max_file_size_mb', 50)  # Max file size in MB to process (default 50MB)
+    match_android_only = data.get('match_android_only', False)  # Only match Android_TV_General.json
 
     if not issue_key:
         return jsonify({"error": "Issue key is required"}), 400
@@ -753,6 +754,12 @@ def api_batch_analyze():
 
     # Load error patterns from JSON files
     error_patterns = load_all_error_patterns()
+
+    # Filter to only Android_TV_General.json if checkbox is checked
+    if match_android_only:
+        error_patterns = [p for p in error_patterns if p.get('_source_file') == 'Android_TV_General']
+        if SHOW_KEYWORD_COMPARE_STATUS:
+            print(f"[PatternMatch] Filtering to Android_TV_General.json only: {len(error_patterns)} rules")
 
     # Build analysis prompt with pattern matching results
     attachment_content = ""
@@ -842,13 +849,32 @@ def api_batch_analyze():
     # Add pattern match summary at the end
     if pattern_matches_summary:
         attachment_content += "\n\n=== PATTERN MATCH SUMMARY ===\n"
+        attachment_content += "| Index | Pattern | Priority | Owner | Source File | Matched Content | Relevance |\n"
+        attachment_content += "|:-----:|:-------|:--------:|:-----:|:------------|:---------------|:--------:|\n"
+        for i, m in enumerate(pattern_matches_summary, 1):
+            # Truncate matched content for table
+            matched = m['matched_line'][:50].replace('|', '\\|').replace('\n', ' ')
+            owner = m.get('owner', '') or 'N/A'
+            # Determine relevance based on priority
+            priority = m.get('priority', 3)
+            if priority == 1:
+                relevance = "高"
+            elif priority == 2:
+                relevance = "中"
+            else:
+                relevance = "低"
+            attachment_content += f"| #{m.get('Index', i)} | {m['module']} | P{priority} | {owner} | {m['source_file']}.json | `{matched}...` | {relevance} |\n"
+
+        attachment_content += "\n**Details:**\n"
         for i, m in enumerate(pattern_matches_summary, 1):
             attachment_content += f"""
-{i}. [{m['module']}] 来源: {m['source_file']}.json | Priority={m['priority']} | {m['comment']}
+{i}. [{m['module']}]
    - Keywords: {m['keywords']}
    - Owner: {m['owner']}
-   - File: {m['file']} Line: {m['line_number']}
-   - Match: {m['matched_line'][:100]}...
+   - Source: {m['source_file']}.json
+   - Comment: {m['comment']}
+   - Log File: {m['file']} (Line {m['line_number']})
+   - Matched: {m['matched_line'][:150]}...
 """
 
     # Language instruction
@@ -872,12 +898,28 @@ IMPORTANT:
 - MUST reference the "PATTERN MATCH SUMMARY" section if present - these are pre-detected error patterns from our knowledge base.
 - Use the matched patterns to identify the root cause.
 
+ANALYSIS APPROACH (Follow this priority):
+1. Primary: Analyze logcat/bugreport - these are the main Android system logs
+2. Secondary: Use rtd_xx logs (Realtek BSP logs) as supplementary evidence
+   - Look for related evidence in rtd_xx logs to support the main analysis
+   - If logcat/bugreport already shows clear errors, use that directly
+3. File grouping: Files extracted from the SAME folder are related
+   - Do NOT mix logs from different folders (e.g., folder A + folder B)
+   - Analyze each folder's files as a separate context
+   - Track which file belongs to which folder
+
 CRITICAL - If pattern matches are found:
 - Provide a confidence value based on how well the matched patterns explain the issue.
 - Confidence format: Use percentage like "50%", "60%", "70%", "80%", "90%", "100%"
 - Higher confidence = patterns strongly match the issue symptoms.
 
-SUMMARY FORMAT - If pattern matches are found, use this table format:
+SUMMARY FORMAT - If pattern matches are found:
+1. Pattern Match Summary Table (required):
+| Index | Pattern | Priority | Owner | Source File | Matched Content | Relevance |
+|:-----:|:-------|:--------:|:-----:|:------------|:---------------|:--------:|
+| #1 | [Pattern Name] | P1/P2/P3 | [Owner/Team] | [Source].json | [Matched log snippet] | 高/中/低 |
+
+2. Root Cause Summary:
 | Category | Details |
 | _Root Cause_ | [Your root cause analysis] |
 | _Impact_ | [What systems/users are affected] |
@@ -925,12 +967,28 @@ IMPORTANT:
 - MUST reference the "PATTERN MATCH SUMMARY" section if present - these are pre-detected error patterns from our knowledge base.
 - Use the matched patterns to identify the root cause.
 
+ANALYSIS APPROACH (Follow this priority):
+1. Primary: Analyze logcat/bugreport - these are the main Android system logs
+2. Secondary: Use rtd_xx logs (Realtek BSP logs) as supplementary evidence
+   - Look for related evidence in rtd_xx logs to support the main analysis
+   - If logcat/bugreport already shows clear errors, use that directly
+3. File grouping: Files extracted from the SAME folder are related
+   - Do NOT mix logs from different folders (e.g., folder A + folder B)
+   - Analyze each folder's files as a separate context
+   - Track which file belongs to which folder
+
 CRITICAL - If pattern matches are found:
 - Provide a confidence value based on how well the matched patterns explain the issue.
 - Confidence format: Use percentage like "50%", "60%", "70%", "80%", "90%", "100%"
 - Higher confidence = patterns strongly match the issue symptoms.
 
-SUMMARY FORMAT - If pattern matches are found, use this table format:
+SUMMARY FORMAT - If pattern matches are found:
+1. Pattern Match Summary Table (required):
+| Index | Pattern | Priority | Owner | Source File | Matched Content | Relevance |
+|:-----:|:-------|:--------:|:-----:|:------------|:---------------|:--------:|
+| #1 | [Pattern Name] | P1/P2/P3 | [Owner/Team] | [Source].json | [Matched log snippet] | 高/中/低 |
+
+2. Root Cause Summary:
 | Category | Details |
 | _Root Cause_ | [Your root cause analysis] |
 | _Impact_ | [What systems/users are affected] |
@@ -1241,8 +1299,11 @@ def download_and_analyze_attachments(issue_key, selected_dates=None):
                         try:
                             with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f:
                                 content = f.read()
-                                txt_contents.append((os.path.basename(txt_file), content))
-                                print(f"[Attachment] Added file from archive: {os.path.basename(txt_file)}")
+                                # Get relative path from att_dir to track folder structure
+                                rel_path = os.path.relpath(txt_file, att_dir)
+                                # Show folder info in filename (e.g., "folder1/folder2/file.txt")
+                                txt_contents.append((rel_path, content))
+                                print(f"[Attachment] Added file from archive: {rel_path}")
                         except:
                             pass
 
