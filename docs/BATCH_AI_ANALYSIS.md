@@ -286,7 +286,11 @@ Pattern Match Summary 表格格式：Index | Pattern | Priority | Owner | Source
 
 支援的檔案格式：
 - 文字檔: `.txt`, `.log`
-- 壓縮檔: `.zip`, `.tar`, `.tgz`, `.tar.gz`, `.gz`
+- 壓縮檔: `.zip`, `.tar`, `.tgz`, `.tar.gz`, `.gz`, `.rar`
+
+**RAR 檔案支援** (需要安裝 unrar):
+- 安裝命令: `sudo apt install unrar` (Linux) 或 `brew install unrar` (Mac)
+- 未安裝時會跳過 RAR 檔案並顯示安裝提示
 
 **智慧日誌提取**:
 系統會自動過濾出包含以下關鍵字的日誌行：
@@ -453,6 +457,16 @@ AI 分析報告包含：
 - 壓縮檔保留資料夾結構（相對路徑追蹤）
 - AI 報告 SUMMARY FORMAT 增加 Pattern Match Summary Table 要求
 - 分析優先級（Relevance）：P1=高, P2=中, P3/P4=低
+
+---
+### v1.2.5 (2026-04-21)
+**Commit**: (WIP) - Add RAR archive support for log extraction
+
+新增功能：
+- 支援 RAR 檔案解壓縮分析 (`.rar`)
+- 新增 RAR magic bytes 驗證 (`Rar!\x1a\x07`)
+- 需要安裝 `unrar` 系統工具：`sudo apt install unrar`
+- 未安裝 unrar 時顯示安裝提示
 
 ---
 

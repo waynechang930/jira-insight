@@ -1147,7 +1147,7 @@ def get_attachments_info(issue_key):
             is_valid = (filename.endswith('.txt') or filename.endswith('.log') or
                        filename.endswith('.zip') or filename.endswith('.tar') or
                        filename.endswith('.tgz') or filename.endswith('.tar.gz') or
-                       filename.endswith('.gz'))
+                       filename.endswith('.gz') or filename.endswith('.rar'))
 
             if is_valid and date_part:
                 result.append({
@@ -1199,7 +1199,7 @@ def download_and_analyze_attachments(issue_key, selected_dates=None):
             is_valid = (filename.endswith('.txt') or filename.endswith('.log') or
                        filename.endswith('.zip') or filename.endswith('.tar') or
                        filename.endswith('.tgz') or filename.endswith('.tar.gz') or
-                       filename.endswith('.gz'))
+                       filename.endswith('.gz') or filename.endswith('.rar'))
 
             if is_valid and date_part:
                 attachment_info.append({
@@ -1361,7 +1361,7 @@ def is_valid_archive(file_path):
     """Check if file is actually a valid archive by reading magic bytes"""
     try:
         with open(file_path, 'rb') as f:
-            header = f.read(8)
+            header = f.read(272)
 
             # ZIP: PK (0x50 0x4B)
             if header[:2] == b'PK':
@@ -1373,6 +1373,10 @@ def is_valid_archive(file_path):
 
             # TAR: ustar at offset 257
             if len(header) >= 265 and b'ustar' in header[257:]:
+                return True
+
+            # RAR (classic & RAR5): Rar! + 0x1a 0x07
+            if header.startswith(b'Rar!\x1a\x07'):
                 return True
 
         return False
@@ -1484,8 +1488,15 @@ def extract_archive(archive_path, extract_to):
             pass
 
         elif archive_path.endswith('.rar'):
-            # rar requires unrar - skip for now if not available
-            pass
+            try:
+                import rarfile
+                with rarfile.RarFile(archive_path, 'r') as r:
+                    r.extractall(extract_to)
+                    txt_files = [os.path.join(extract_to, n) for n in r.namelist() if n.endswith('.txt') or n.endswith('.log')]
+            except Exception as e:
+                print(f"Cannot extract RAR: {e}")
+                print(f"  Install unrar: sudo apt install unrar (or brew install unrar)")
+                return []
 
     except Exception as e:
         print(f"Error extracting {archive_path}: {e}")
